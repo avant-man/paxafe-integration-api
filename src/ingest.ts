@@ -1,7 +1,7 @@
 import { finalizeEvent, insertEvent, type EventStatus } from './db/events.js';
 import type { ApiKeyRecord } from './db/keys.js';
 import { withTransaction, type Pool } from './db/pool.js';
-import { HTTP_BY_STATUS, storeReading } from './db/readings.js';
+import { DeviceAccountConflict, HTTP_BY_STATUS, storeReading } from './db/readings.js';
 import type { Logger } from './logger.js';
 import { OutputSchemaViolation, transformPayload } from './transform/pipeline.js';
 import type { Issue, PxLocation, PxSensor } from './transform/types.js';
@@ -95,6 +95,12 @@ export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: 
       }),
     };
   } catch (err) {
+    if (err instanceof DeviceAccountConflict) {
+      const error: Issue = { code: 'DEVICE_ACCOUNT_CONFLICT', path: 'DeviceId', message: `${err.message}; nothing was stored` };
+      await finalizeEvent(ctx.pool, eventId, { status: 'rejected', httpStatus: 422, errors: [error], warnings: [], deviceImei: err.deviceImei });
+      log.warn({ status: 'rejected', error_codes: [error.code], device_imei: err.deviceImei }, 'item rejected: device owned by another account');
+      return { httpStatus: 422, body: body(ctx, eventId, 'rejected', { errors: [error] }) };
+    }
     const error: Issue = err instanceof OutputSchemaViolation
       ? { code: 'OUTPUT_SCHEMA_VIOLATION', path: '', message: err.message }
       : { code: 'INTERNAL_ERROR', path: '', message: 'Unexpected error while processing; the raw payload is kept for replay' };

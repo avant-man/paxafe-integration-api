@@ -10,7 +10,7 @@ const UTC_TOLERANCE_MS = 1000;
 export interface ValidateOptions {
   /** Current time in epoch ms. Injected so the rules stay pure and testable. */
   nowMs: number;
-  /** account_id of the API key; when set, a different payload AccountId is rejected. */
+  /** account_id of the API key. When set, it is the reading's account and a different payload AccountId is rejected. */
   keyAccountId: number | null;
 }
 
@@ -22,7 +22,7 @@ export interface ValidationResult {
 }
 
 /** Hard rules. Any error means the item is rejected (HTTP 422). */
-export function validate(payload: JsonObject, options: ValidateOptions): ValidationResult {
+export function validate(payload: JsonObject, options: ValidateOptions, sentAccountId: unknown = payload.AccountId): ValidationResult {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
 
@@ -85,12 +85,15 @@ export function validate(payload: JsonObject, options: ValidateOptions): Validat
     errors.push({ code: 'LOCATION_MISSING', path: 'Location', message: 'Location must be an object' });
   }
 
-  const accountId = payload.AccountId;
-  if (options.keyAccountId !== null && accountId !== undefined && accountId !== null && accountId !== options.keyAccountId) {
+  // A scoped key owns the account. The payload may leave AccountId out or repeat the key's
+  // account, nothing else. `sentAccountId` is the value before normalize, so "abc" (which
+  // normalize turns into null) is a mismatch and not a way around this rule.
+  const sent = sentAccountId !== undefined && sentAccountId !== null;
+  if (options.keyAccountId !== null && sent && payload.AccountId !== options.keyAccountId) {
     errors.push({
       code: 'ACCOUNT_MISMATCH',
       path: 'AccountId',
-      message: 'AccountId does not match the account of this API key',
+      message: 'AccountId must be absent or equal to the account of this API key',
     });
   }
 

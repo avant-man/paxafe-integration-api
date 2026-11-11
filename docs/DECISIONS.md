@@ -66,8 +66,9 @@ change it. No item changes the response fields that the spec defines.
 - **(beyond spec) `DUPLICATE_CONFLICT` warning on conflicts.** It tells the reader that the
   payload was kept only in the event log. The event row also points at the first write's
   reading ids.
-- **Device descriptive fields change only when a newer reading lands.** A late or conflicting
-  resend cannot overwrite `device_id` or `account_id` with old data.
+- **`device_id` (the device name) changes only when a newer reading lands.** A late or
+  conflicting resend cannot overwrite it with old data. One `INSERT ... ON CONFLICT DO UPDATE`
+  keeps the device row; there is no second `UPDATE devices`.
 
 ## Auth, limits and multi-tenancy
 
@@ -75,8 +76,21 @@ change it. No item changes the response fields that the spec defines.
   expose usable keys. Keys are random (192 bits), so a fast hash is enough.
 - **`last_used_at` is written at most once a minute per key.** Auth does not write on every
   request.
-- **(beyond spec) A scoped key (with `account_id`) sees only its own events and its account's
-  devices.** This is the same data-separation rule as `ACCOUNT_MISMATCH`, applied to reads.
+- **A scoped key (with `account_id`) decides the account of every reading it writes.** The
+  payload may leave `AccountId` out (the key's account is stored) or repeat the key's account.
+  Any other value, including garbage such as `"abc"` or `1.5`, is `ACCOUNT_MISMATCH` (422).
+  Before this, `"abc"` became null in normalize and got past the check.
+- **(beyond spec) A device belongs to one account, set once.** The first write that carries an
+  account sets `devices.account_id`. After that no payload changes it, not even one sent with
+  the unscoped key. A write whose account differs is rejected with `DEVICE_ACCOUNT_CONFLICT`
+  (422, path `DeviceId`) and nothing is stored. The message does not name the owner. The check
+  runs before the duplicate check, so another tenant cannot learn reading ids through
+  `duplicate_of`. A device first written with no account can be claimed once by the next write
+  that carries one.
+- **A reading with no account (unscoped key, no `AccountId`) takes the device's account.**
+- **(beyond spec) A scoped key sees only its own events, its own devices and, on a device, only
+  the readings of its own account.** This is the same rule as `ACCOUNT_MISMATCH`, applied to
+  reads.
 - **The seed key is rotated, not added.** A change to `SEED_API_KEY` replaces the hash of the
   key named `seed`, so the old demo key stops working.
 - **The rate limit counts HTTP requests, not batch items, on all `/api/*` routes.** A batch of

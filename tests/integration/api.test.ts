@@ -33,6 +33,7 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
   let pool: Pool;
   let app: ReturnType<typeof createApp>;
   let scopedKey: string;
+  let otherTenantKey: string;
   let revokedKey: string;
 
   const post = (body: unknown, opts: { key?: string | null; type?: string; raw?: string; headers?: Record<string, string> } = {}) => {
@@ -50,6 +51,7 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
     await runMigrations(pool, logger);
     await upsertSeedKey(pool, SEED);
     scopedKey = (await createApiKey(pool, 'scoped-478', 478)).key;
+    otherTenantKey = (await createApiKey(pool, 'scoped-999', 999)).key;
     revokedKey = (await createApiKey(pool, 'revoked', null)).key;
     await pool.query("UPDATE api_keys SET revoked_at = now() WHERE name = 'revoked'");
     app = createApp({ pool, logger, config: config() });
@@ -207,13 +209,15 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(own.status).toBe(201);
     });
 
-    it('scoped keys see only their own events and their account devices', async () => {
+    it('scoped keys see only their own events and their own account devices', async () => {
       const events = await (await get('/api/events?limit=200', scopedKey)).json() as Json;
       expect(events.events.length).toBe(2);
       expect((await get('/api/devices/555555555555555/readings', scopedKey)).status).toBe(200);
-      const res = await get('/api/devices/863257063350583/readings', scopedKey);
-      expect(res.status).toBe(200); // account 478
-      expect((await get('/api/devices/111111111111111/readings', scopedKey)).status).toBe(200);
+      // Written by the seed key with AccountId 478, so it belongs to account 478.
+      expect((await get('/api/devices/863257063350583/readings', scopedKey)).status).toBe(200);
+      // Clinical Supply Shipment is account 999: another tenant's device is not found.
+      await post(withImei('Clinical Supply Shipment', '444444444444445'));
+      expect((await get('/api/devices/444444444444445/readings', scopedKey)).status).toBe(404);
     });
 
     it('handles concurrent identical requests: exactly one processed', async () => {
@@ -221,6 +225,63 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       const results: Json[] = await Promise.all(Array.from({ length: 6 }, async () => (await post(p)).json()));
       const statuses = results.map((r: { status: string }) => r.status).sort();
       expect(statuses).toEqual(['duplicate', 'duplicate', 'duplicate', 'duplicate', 'duplicate', 'processed']);
+    });
+  });
+
+  describe('tenant isolation', () => {
+    const reading = (imei: string, epoch: number, over: Json = {}) => ({
+      ...withImei('Minimal Data Payload', imei), EntryTimeEpoch: epoch, ...over,
+    });
+
+    it('a scoped key cannot write to a device owned by another account', async () => {
+      const victim = await post(reading('910000000000001', 1739215646000, { DeviceName: 'VICTIM' }), { key: otherTenantKey });
+      expect(victim.status).toBe(201);
+
+      const attack = await post(reading('910000000000001', 1739215647000, { DeviceName: 'PWNED', AccountId: 478 }), { key: scopedKey });
+      expect(attack.status).toBe(422);
+      const body = await attack.json() as Json;
+      expect(body).toMatchObject({ status: 'rejected', sensor: null, errors: [{ code: 'DEVICE_ACCOUNT_CONFLICT', path: 'DeviceId' }] });
+
+      const own = await (await get('/api/devices/910000000000001/readings', otherTenantKey)).json() as Json;
+      expect(own.device).toMatchObject({ account_id: 999, device_id: 'VICTIM' });
+      expect(own.sensor).toHaveLength(1);
+      expect((await get('/api/devices/910000000000001/readings', scopedKey)).status).toBe(404);
+      const ev = await (await get(`/api/events/${body.event_id}`, scopedKey)).json() as Json;
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 422 });
+    });
+
+    it('the payload never moves a device to another account, even with the unscoped key', async () => {
+      const res = await post(reading('910000000000001', 1739215648000, { AccountId: 478 }));
+      expect(res.status).toBe(422);
+      expect((await res.json() as Json).errors[0].code).toBe('DEVICE_ACCOUNT_CONFLICT');
+      const { rows } = await pool.query("SELECT account_id FROM devices WHERE device_imei = '910000000000001'");
+      expect(rows).toEqual([{ account_id: 999 }]);
+    });
+
+    it('a scoped key that omits AccountId stores the key account and can read its device', async () => {
+      const res = await post(reading('910000000000002', 1739215646000), { key: scopedKey });
+      expect(res.status).toBe(201);
+      const readings = await (await get('/api/devices/910000000000002/readings', scopedKey)).json() as Json;
+      expect(readings.device.account_id).toBe(478);
+      const { rows } = await pool.query("SELECT account_id FROM sensor_readings WHERE device_imei = '910000000000002'");
+      expect(rows).toEqual([{ account_id: 478 }]);
+    });
+
+    it('a scoped key rejects a garbage AccountId', async () => {
+      const res = await post(reading('910000000000003', 1739215646000, { AccountId: 'abc' }), { key: scopedKey });
+      expect(res.status).toBe(422);
+      expect((await res.json() as Json).errors.map((e: { code: string }) => e.code)).toEqual(['ACCOUNT_MISMATCH']);
+    });
+
+    it('scoped reads return only readings of the key account', async () => {
+      // The admin key writes a reading with no account; then account 478 claims the device.
+      expect((await post(reading('910000000000004', 1739215646000))).status).toBe(201);
+      expect((await post(reading('910000000000004', 1739215647000), { key: scopedKey })).status).toBe(201);
+      const scoped = await (await get('/api/devices/910000000000004/readings', scopedKey)).json() as Json;
+      expect(scoped.sensor.map((r: { timestamp_ms: number }) => r.timestamp_ms)).toEqual([1739215647000]);
+      expect(scoped.location.map((r: { timestamp_ms: number }) => r.timestamp_ms)).toEqual([1739215647000]);
+      const admin = await (await get('/api/devices/910000000000004/readings')).json() as Json;
+      expect(admin.sensor).toHaveLength(2);
     });
   });
 

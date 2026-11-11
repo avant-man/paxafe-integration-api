@@ -31,7 +31,7 @@ export function transformPayload(item: unknown, options: ValidateOptions): Trans
   }
 
   const { normalized, warnings: normalizeWarnings } = normalize(item);
-  const { errors, warnings: validateWarnings, timestampMs } = validate(normalized, options);
+  const { errors, warnings: validateWarnings, timestampMs } = validate(normalized, options, item.AccountId);
   // The canonical form stores the epoch in ms, so a resend in seconds hashes the same.
   if (timestampMs !== null) normalized.EntryTimeEpoch = timestampMs;
   const payloadHash = hashPayload(normalized);
@@ -44,6 +44,8 @@ export function transformPayload(item: unknown, options: ValidateOptions): Trans
   }
 
   const { reading, warnings: cleanWarnings } = clean(normalized, timestampMs);
+  // A scoped key decides the account. Only the unscoped (admin) key takes it from the payload.
+  if (options.keyAccountId !== null) reading.accountId = options.keyAccountId;
   const sensor = toPxSensor(reading);
   const location = toPxLocation(reading);
 

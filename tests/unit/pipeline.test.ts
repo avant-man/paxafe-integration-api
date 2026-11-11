@@ -111,3 +111,28 @@ describe('non-object items', () => {
     expect(out.errors.map((e) => e.code)).toEqual(['PAYLOAD_NOT_OBJECT']);
   });
 });
+
+describe('account of the reading (tenant isolation)', () => {
+  const scoped = { nowMs: NOW_MS, keyAccountId: 478 };
+  const accountOf = (over: Record<string, unknown>, o: typeof opts | typeof scoped) => {
+    const out = transformPayload({ ...sample('Minimal Data Payload'), ...over }, o);
+    return out.ok ? out.reading.accountId : out.errors.map((e) => e.code);
+  };
+
+  it('a scoped key sets the account, also when the payload has no AccountId', () => {
+    expect(accountOf({}, scoped)).toBe(478);
+    expect(accountOf({ AccountId: 478 }, scoped)).toBe(478);
+    expect(accountOf({ AccountId: '478' }, scoped)).toBe(478);
+  });
+
+  it('a scoped key rejects any other AccountId, including garbage', () => {
+    expect(accountOf({ AccountId: 999 }, scoped)).toEqual(['ACCOUNT_MISMATCH']);
+    expect(accountOf({ AccountId: 'abc' }, scoped)).toEqual(['ACCOUNT_MISMATCH']);
+    expect(accountOf({ AccountId: true }, scoped)).toEqual(['ACCOUNT_MISMATCH']);
+  });
+
+  it('an unscoped key takes the account from the payload', () => {
+    expect(accountOf({ AccountId: 999 }, opts)).toBe(999);
+    expect(accountOf({}, opts)).toBeNull();
+  });
+});
