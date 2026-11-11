@@ -117,6 +117,10 @@ change it. No item changes the response fields that the spec defines.
 - **`duplicate` against `duplicate_conflict` uses the SHA-256 of the normalized payload,** with
   keys sorted and the epoch in ms. A resend in seconds of a reading first sent in ms is
   `duplicate`, not a conflict.
+- **Only the sensor insert has `ON CONFLICT DO NOTHING`; the location insert is plain.** The
+  sensor row is the idempotency gate, so a location row for a new key cannot exist. If one does
+  (a manual data repair), the item fails with 500 and rolls back. It used to be stored as
+  `partial` with a `LOCATION_DUPLICATE` warning, a branch normal traffic never reached.
 - **`INSERT ... ON CONFLICT DO NOTHING`, then a lookup.** Two concurrent identical requests give
   exactly one `processed` and one `duplicate`. The integration test sends 6 at once.
 - **(beyond spec) `duplicate_of` in duplicate responses.** `sensor` and `location` stay null as

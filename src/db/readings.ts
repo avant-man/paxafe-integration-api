@@ -94,7 +94,6 @@ export async function storeReading(client: PoolClient, eventId: string, o: Accep
           latitude, longitude, altitude, accuracy_m, accuracy_category, location_source, address, battery_pct,
           cellular_dbm, wifi_access_points, account_id, shipment_id, public_shipment_id, payload_hash, payload)
        VALUES ($1, $2, $3, $4, $5, 'Tive', 'Active', $6, $7, NULL, $8, $9, $10, $11::jsonb, $12, $13, $14, $15, $16, $17, $18, $19::jsonb)
-       ON CONFLICT (device_imei, timestamp_ms) DO NOTHING
        RETURNING id`,
       [
         eventId, r.deviceImei, r.deviceName, r.timestampMs, recordedAt,
@@ -103,11 +102,9 @@ export async function storeReading(client: PoolClient, eventId: string, o: Accep
         accountId, r.shipmentId, r.publicShipmentId, o.payloadHash, JSON.stringify(loc),
       ],
     );
-    locationId = insertedLoc.rows[0]?.id ?? null;
-    if (locationId === null) {
-      // Only reachable if a location row exists without its sensor row (manual data repair).
-      warnings.push({ code: 'LOCATION_DUPLICATE', path: 'Location', message: 'A location row already exists for this device and timestamp; kept the existing row' });
-    }
+    // A plain INSERT: the sensor row above is the idempotency gate, so a location row for this
+    // key cannot exist yet. If one does (a manual data repair), the unique key fails the item loudly.
+    locationId = insertedLoc.rows[0]!.id;
   }
 
   const status: StoreStatus = locationId !== null ? 'processed' : 'partial';
@@ -189,4 +186,3 @@ export async function getDeviceReadings(
   return { device: device.rows[0] as Record<string, unknown>, sensor: sensor.rows, location: location.rows };
 }
 
-export type { Pool };

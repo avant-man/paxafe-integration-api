@@ -483,6 +483,18 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(body.summary).toMatchObject({ processed: 2, failed: 1 });
     });
 
+    it('a location row left without its sensor row (manual repair) fails the item loudly', async () => {
+      const p = withImei('Minimal Data Payload', '940000000000009');
+      expect((await post(p)).status).toBe(201);
+      await pool.query("UPDATE webhook_events SET sensor_reading_id = NULL WHERE device_imei = '940000000000009'");
+      await pool.query("DELETE FROM sensor_readings WHERE device_imei = '940000000000009'");
+      const res = await post(p);
+      expect(res.status).toBe(500);
+      expect(await res.json() as Json).toMatchObject({ status: 'failed', errors: [{ code: 'INTERNAL_ERROR' }] });
+      const { rows } = await pool.query("SELECT count(*)::int AS n FROM sensor_readings WHERE device_imei = '940000000000009'");
+      expect(rows[0].n).toBe(0); // rolled back with the location insert
+    });
+
     it('a single item gets the item shape with status failed, not a bare 500', async () => {
       const restore = failNthEventInsert(1);
       let res: Response;
