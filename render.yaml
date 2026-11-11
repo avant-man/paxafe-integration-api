@@ -3,7 +3,7 @@ services:
   - type: web
     name: paxafe-integration-api
     runtime: docker
-    plan: free
+    plan: starter
     region: oregon
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health

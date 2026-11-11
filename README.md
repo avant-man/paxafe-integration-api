@@ -9,13 +9,24 @@ repo, `paxafe-mock-tive-sender`, generates payloads and sends them here.
 ## Live deployment
 
 ```text
-Integration API:  <API_URL>
-Mock Tive sender: <SENDER_URL>
-Test API key:     <TEST_API_KEY>
+Integration API:  https://paxafe-integration-api-0sed.onrender.com
+Mock Tive sender: https://paxafe-mock-tive-sender-fxkl.onrender.com
+API source:       https://github.com/avant-man/paxafe-integration-api
+Sender source:    https://github.com/avant-man/paxafe-mock-tive-sender
 ```
 
-The deploy step fills in these values. Send the key as `X-API-Key: <TEST_API_KEY>`.
-A free Render service sleeps after 15 minutes. The first request can take about 1 minute.
+The API runs on Render (Starter plan, Docker, region `oregon`, 1 instance). The database is
+Neon Postgres 18 in AWS `us-west-2`. A push to `main` deploys again after CI passes.
+
+The test API keys are in the submission email: one unscoped key and one key scoped to account
+478. They are not in this repo. Send a key as `X-API-Key: <TEST_API_KEY>`.
+
+Live smoke test results (2026-11-11):
+
+- `GET /health` returns `{"status":"ok","db":"ok"}`.
+- Through the live sender, `samples` gives 13 of 13 as expected.
+- Through the live sender, `edge-suite` gives 15 of 15 and `realistic` gives 20 of 20.
+- The sender's live contract test passes 16 of 16 against the deployed API.
 
 Other documents:
 
@@ -94,7 +105,7 @@ curl -s -H 'X-API-Key: test-key-local' 'http://localhost:3000/api/devices/863257
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | none, required | Postgres connection string. Use `sslmode=verify-full` for Neon |
+| `DATABASE_URL` | none, required | Postgres connection string. For Neon, use the direct (unpooled) string with `sslmode=verify-full` |
 | `DATABASE_URL_DIRECT` | empty | Direct (unpooled) URL. Migrations use it when `DATABASE_URL` goes through a pooler |
 | `PORT` | `3000` | HTTP port |
 | `LOG_LEVEL` | `info` | pino log level |
@@ -147,7 +158,7 @@ migrations/      plain SQL (001_init, 002_bigint_accounts_indexes_checks)
 - A Tive payload is small, and the transform is pure code with no I/O.
 - The sender gets the exact result in the same response: status, PX documents, codes.
 - A non-2xx answer tells Tive to retry. Idempotency makes the retry safe.
-- One process and one database are simple to run on a free tier.
+- One process and one database are simple to run and operate.
 
 ### Why the raw event comes first
 
@@ -422,7 +433,7 @@ Reads filter by the key's account.
 **Retention.** `npm run retention` deletes `duplicate`, `duplicate_conflict` and `rejected`
 events older than 30 days. It clears the raw body of `processed` and `partial` events older
 than 90 days. It works in batches of 1000 rows. It keeps `failed` events (the replay queue) and
-every event that a reading points at. Render free has no cron, so it runs by hand.
+every event that a reading points at. It runs by hand or from a scheduler.
 
 **Scale path.**
 
@@ -464,7 +475,9 @@ LIVE_TARGET_KEY=test-key-local npm test -- contract.live` in that repo sends eve
 
 ## 8. Deployment and operations
 
-The deploy is one Render free web service (Docker, `render.yaml`) and a Neon free Postgres.
+The deploy is one Render Starter web service (Docker, region `oregon`, 1 instance, `render.yaml`)
+and one Neon Postgres 18 database in AWS `us-west-2`. `DATABASE_URL` is the Neon direct
+(unpooled) string with `sslmode=verify-full`. The live URLs are in [Live deployment](#live-deployment).
 [`docs/DEPLOY.md`](docs/DEPLOY.md) has the steps, the smoke test and troubleshooting.
 
 - **Migrations** run at boot, before the server listens. Each file runs once, also with two instances.
@@ -497,9 +510,8 @@ Known limits:
 - The migration runner has no checksums. It cannot run `CREATE INDEX CONCURRENTLY`, because every file runs in a transaction.
 - No replay command exists yet for `failed` events, although their raw bodies are kept.
 - Backups are only the Neon free restore window. There is no tested restore drill.
-- Retention does not run on a schedule. Render free has no cron.
+- Retention does not run on a schedule. Run it by hand or from a scheduler.
 - The address parser reads only US and Canadian state and postal formats.
-- Free-tier services sleep, so the first request after a pause takes about 1 minute.
 
 With more time, I would:
 
