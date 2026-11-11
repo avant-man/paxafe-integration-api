@@ -285,6 +285,37 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
     });
   });
 
+  describe('schema (migration 002)', () => {
+    it('stores an AccountId above the int4 range (bigint), also for a scoped key', async () => {
+      const res = await post({ ...withImei('Minimal Data Payload', '920000000000001'), AccountId: 3_000_000_000 });
+      expect(res.status).toBe(201);
+      const big = (await createApiKey(pool, 'scoped-big', 3_000_000_000)).key;
+      const readings = await (await get('/api/devices/920000000000001/readings', big)).json() as Json;
+      expect(readings.device.account_id).toBe(3_000_000_000);
+      expect(readings.sensor).toHaveLength(1);
+    });
+
+    it('has CHECK constraints as the last guard', async () => {
+      const bad = [
+        "UPDATE sensor_readings SET humidity_pct = 100.5 WHERE device_imei = '920000000000001'",
+        "UPDATE sensor_readings SET temperature_c = 100.5 WHERE device_imei = '920000000000001'",
+        "UPDATE sensor_readings SET probe_temperature_c = -100.5 WHERE device_imei = '920000000000001'",
+        "UPDATE sensor_readings SET provider = 'Other' WHERE device_imei = '920000000000001'",
+        "UPDATE location_readings SET provider = 'Other' WHERE device_imei = '920000000000001'",
+        "INSERT INTO devices (device_imei, device_id, provider, type) VALUES ('12345', 'x', 'Tive', 'Active')",
+        "INSERT INTO devices (device_imei, device_id, provider, type) VALUES ('920000000000009', 'x', 'Other', 'Active')",
+      ];
+      for (const sql of bad) await expect(pool.query(sql), sql).rejects.toMatchObject({ code: '23514' });
+    });
+
+    it('indexes event_id on both reading tables', async () => {
+      const { rows } = await pool.query(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND indexdef LIKE '%(event_id)%' ORDER BY indexname`,
+      );
+      expect(rows.map((r: { indexname: string }) => r.indexname)).toEqual(['location_readings_event_id_idx', 'sensor_readings_event_id_idx']);
+    });
+  });
+
   describe('batch', () => {
     it('207 with one result per item in order and a status summary', async () => {
       const samples = loadSamples().map((s) => ({ ...s.payload }));

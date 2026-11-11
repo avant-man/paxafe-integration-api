@@ -110,6 +110,17 @@ change it. No item changes the response fields that the spec defines.
   `timestamp_ms >= 0`. The database is the last guard if a transform bug gets through.
 - **`payload jsonb` holds the exact PX document.** Typed columns are for queries. The jsonb is
   what PX consumers get, with no new serialization step.
+- **(deviation) `account_id` is `bigint` everywhere (migration 002).** The spec says `int`. A Tive
+  `AccountId` above 2^31 - 1 failed the insert with "integer out of range", so the item failed
+  with 500 and Tive retried it forever. Values up to 2^53 now store. A larger or non-integer
+  `AccountId` becomes null with `OUT_OF_RANGE` (unscoped key) or `ACCOUNT_MISMATCH` (scoped key).
+- **Migration 002 is a new file; 001 is never edited.** A database that already ran 001 gets the
+  change, and the migration history stays true.
+- **(beyond spec) Indexes on `sensor_readings(event_id)` and `location_readings(event_id)`.** The
+  foreign keys to `webhook_events` need them, or every event delete scans both tables.
+- **(beyond spec) More CHECK constraints (002):** a 15-digit `devices.device_imei`, `provider =
+  'Tive'` on the three tables, humidity 0 to 100, and temperature and probe temperature -100 to
+  100 °C. These match the soft rules, so a transform bug fails loudly instead of storing bad data.
 - **`bigint` and `numeric` are read back as JS numbers.** Ids and epoch ms stay below 2^53, and
   the API returns numbers, not strings.
 
