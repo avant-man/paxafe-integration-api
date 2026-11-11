@@ -8,6 +8,8 @@ export interface Config {
   rateLimitPerMin: number;
   bodyLimitBytes: number;
   maxBatchSize: number;
+  /** Deepest nesting of objects and arrays in a body. A Tive payload needs 4 (5 in a batch). */
+  maxJsonDepth: number;
 }
 
 /** Loads `.env` for local runs. Variables already set in the environment win. */
@@ -33,5 +35,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     rateLimitPerMin: intFrom(env.RATE_LIMIT_PER_MIN, 600, 'RATE_LIMIT_PER_MIN'),
     bodyLimitBytes: 1024 * 1024,
     maxBatchSize: 100,
+    maxJsonDepth: 64,
   };
 }

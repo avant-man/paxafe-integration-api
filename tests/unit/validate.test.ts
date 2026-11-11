@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validate, type ValidateOptions } from '../../src/transform/validate.js';
+import { findBadString, validate, type ValidateOptions } from '../../src/transform/validate.js';
 import type { JsonObject } from '../../src/transform/types.js';
 
 const NOW = Date.parse('2026-01-01T00:00:00Z');
@@ -101,5 +101,14 @@ describe('validate (hard rules)', () => {
 
   it('reports every hard error at once', () => {
     expect(codes({})).toEqual(['DEVICE_ID_INVALID', 'DEVICE_NAME_MISSING', 'TIMESTAMP_INVALID', 'TEMPERATURE_MISSING', 'LOCATION_MISSING']);
+  });
+});
+
+describe('findBadString (text Postgres cannot store)', () => {
+  it('finds NUL and lone surrogates in values and keys, with the path', () => {
+    expect(findBadString({ a: 'ok', b: { c: 'x\u0000' } })).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'b.c' });
+    expect(findBadString({ list: ['ok', 'y\udc00'] })).toMatchObject({ code: 'INVALID_STRING', path: 'list.1' });
+    expect(findBadString({ a: { 'k\u0000': 1 } })).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'a' });
+    expect(findBadString({ emoji: '😀', text: 'plain' })).toBeNull();
   });
 });

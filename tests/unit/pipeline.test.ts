@@ -136,3 +136,12 @@ describe('account of the reading (tenant isolation)', () => {
     expect(accountOf({}, opts)).toBeNull();
   });
 });
+
+describe('strings Postgres cannot store', () => {
+  it('rejects the item before any other rule, with no warnings that quote the text', () => {
+    const out = transformPayload({ ...sample('Minimal Data Payload'), DeviceName: 'A\u0000', Humidity: { Percentage: 'x\u0000' } }, opts);
+    expect(out.ok).toBe(false);
+    expect(out.errors.map((e) => [e.code, e.path])).toEqual([['CONTROL_CHARACTER', 'DeviceName']]);
+    expect(out.warnings).toEqual([]);
+  });
+});

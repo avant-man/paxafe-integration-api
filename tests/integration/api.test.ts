@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import { gzipSync } from 'node:zlib';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import type { Config } from '../../src/config.js';
 import { createApiKey, upsertSeedKey } from '../../src/db/keys.js';
@@ -23,7 +24,7 @@ const logger = createLogger('silent');
 function config(over: Partial<Config> = {}): Config {
   return {
     databaseUrl: url ?? '', port: 0, logLevel: 'silent', seedApiKey: SEED,
-    rateLimitPerMin: 10_000, bodyLimitBytes: 1024 * 1024, maxBatchSize: 100, ...over,
+    rateLimitPerMin: 10_000, bodyLimitBytes: 1024 * 1024, maxBatchSize: 100, maxJsonDepth: 64, ...over,
   };
 }
 
@@ -36,7 +37,8 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
   let otherTenantKey: string;
   let revokedKey: string;
 
-  const post = (body: unknown, opts: { key?: string | null; type?: string; raw?: string; headers?: Record<string, string> } = {}) => {
+  type PostOpts = { key?: string | null; type?: string; raw?: string | Uint8Array; headers?: Record<string, string> };
+  const post = (body: unknown, opts: PostOpts = {}) => {
     const headers: Record<string, string> = { 'content-type': opts.type ?? 'application/json', ...opts.headers };
     if (opts.key !== null) headers['x-api-key'] = opts.key ?? SEED;
     return app.request('/api/webhook/tive', { method: 'POST', headers, body: opts.raw ?? JSON.stringify(body) });
@@ -126,6 +128,104 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       const res = await post(Array.from({ length: n }, () => sample('Minimal Data Payload')));
       expect(res.status).toBe(400);
       expect((await res.json() as Json).errors[0].code).toBe('BATCH_SIZE_INVALID');
+    });
+  });
+
+  describe('hostile input: a coded 4xx and an audit row, never a 500', () => {
+    const event = async (res: Response) => {
+      const body = await res.json() as Json;
+      const ev = await (await get(`/api/events/${body.event_id}`)).json() as Json;
+      return { body, ev };
+    };
+    const minimal = (imei: string, over: Json = {}) => ({ ...withImei('Minimal Data Payload', imei), ...over });
+
+    it.each([
+      ['DeviceName', { DeviceName: 'AB\u0000CD' }],
+      ['ShipmentId', { ShipmentId: 'S\u0000' }],
+      ['PublicShipmentId', { PublicShipmentId: 'P\u0000' }],
+      ['Shipment.Id', { Shipment: { Id: 'S\u0000' } }],
+      ['Location.FormattedAddress', { Location: { Latitude: 40, Longitude: -73, FormattedAddress: 'x\u0000, USA' } }],
+    ])('422 CONTROL_CHARACTER for \\u0000 in %s', async (path, over) => {
+      const res = await post(minimal('930000000000001', over));
+      expect(res.status).toBe(422);
+      const { body, ev } = await event(res);
+      expect(body.errors).toEqual([{ code: 'CONTROL_CHARACTER', path, message: expect.any(String) }]);
+      // jsonb cannot hold \u0000, so the item is kept as JSON text.
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 422, raw_body: null });
+      expect(JSON.parse(ev.raw_text)).toEqual(minimal('930000000000001', over));
+    });
+
+    it('422 CONTROL_CHARACTER for \\u0000 in an object key', async () => {
+      const res = await post(minimal('930000000000002', { Extra: { 'bad\u0000key': 1 } }));
+      expect(res.status).toBe(422);
+      expect((await res.json() as Json).errors[0]).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'Extra' });
+    });
+
+    it('422 INVALID_STRING for a lone surrogate', async () => {
+      // JSON.stringify writes a lone surrogate as the escape \ud800, which JSON.parse turns back into one.
+      const res = await post(minimal('930000000000003', { DeviceName: 'A\ud800' }));
+      expect(res.status).toBe(422);
+      const { body, ev } = await event(res);
+      expect(body.errors).toEqual([{ code: 'INVALID_STRING', path: 'DeviceName', message: expect.any(String) }]);
+      expect(ev).toMatchObject({ status: 'rejected', raw_body: null, raw_text: expect.stringContaining('ud800') });
+    });
+
+    it('400 INVALID_JSON for a body with a raw NUL byte, kept byte for byte', async () => {
+      const raw = '{"DeviceId": "86\u0000';
+      const res = await post(null, { raw });
+      expect(res.status).toBe(400);
+      const { body, ev } = await event(res);
+      expect(body.errors[0].code).toBe('INVALID_JSON');
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 400, raw_text: null });
+      expect(Buffer.from(ev.raw_base64, 'base64').toString('utf8')).toBe(raw);
+    });
+
+    it('stores the error even when the JSON.parse message quotes a NUL byte', async () => {
+      const res = await post(null, { raw: 'x\u0000y' });
+      expect(res.status).toBe(400);
+      const { ev } = await event(res);
+      expect(ev).toMatchObject({ status: 'rejected', errors: [{ code: 'INVALID_JSON' }] });
+      expect(ev.errors[0].message).not.toContain('\u0000');
+    });
+
+    it('400 INVALID_JSON for a body that is not UTF-8 (gzip without Content-Encoding)', async () => {
+      const bytes = gzipSync(JSON.stringify(minimal('930000000000004')));
+      const res = await post(null, { raw: bytes });
+      expect(res.status).toBe(400);
+      const { body, ev } = await event(res);
+      expect(body.errors[0]).toMatchObject({ code: 'INVALID_JSON', message: expect.stringContaining('UTF-8') });
+      expect(Buffer.from(ev.raw_base64, 'base64')).toEqual(Buffer.from(bytes));
+    });
+
+    it.each(['gzip', 'br', 'deflate'])('415 UNSUPPORTED_ENCODING for Content-Encoding: %s, stored', async (enc) => {
+      const bytes = gzipSync(JSON.stringify(minimal('930000000000005')));
+      const res = await post(null, { raw: bytes, headers: { 'content-encoding': enc } });
+      expect(res.status).toBe(415);
+      const { body, ev } = await event(res);
+      expect(body).toMatchObject({ status: 'rejected', errors: [{ code: 'UNSUPPORTED_ENCODING' }] });
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 415 });
+      expect(Buffer.from(ev.raw_base64, 'base64')).toEqual(Buffer.from(bytes));
+    });
+
+    it('accepts Content-Encoding: identity', async () => {
+      const res = await post(minimal('930000000000006'), { headers: { 'content-encoding': 'identity' } });
+      expect(res.status).toBe(201);
+    });
+
+    it.each([
+      ['20000 objects', `{"DeviceId":"930000000000007","Deep":${'{"a":'.repeat(20000)}1${'}'.repeat(20000)}}`],
+      ['5000 arrays', `{"DeviceId":"930000000000007","Deep":${'['.repeat(5000)}${']'.repeat(5000)}}`],
+    ])('400 PAYLOAD_TOO_DEEP for an unknown field nested %s deep, stored as text', async (_label, raw) => {
+      const res = await post(null, { raw });
+      expect(res.status).toBe(400);
+      const { body, ev } = await event(res);
+      expect(body.errors[0].code).toBe('PAYLOAD_TOO_DEEP');
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 400, raw_body: null, raw_text: raw });
+    });
+
+    it('allows normal nesting', async () => {
+      const res = await post(minimal('930000000000008', { Extra: { a: { b: { c: [[[1]]] } } } }));
+      expect(res.status).toBe(201);
     });
   });
 

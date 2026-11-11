@@ -10,6 +10,8 @@ export interface NewEvent {
   batchIndex: number | null;
   rawBody?: unknown;
   rawText?: string | null;
+  /** The body as bytes, when it is not text that Postgres can store (not UTF-8, or a NUL byte). */
+  rawBytes?: Uint8Array | null;
   payloadHash?: string | null;
   deviceImei?: string | null;
 }
@@ -30,22 +32,37 @@ export interface EventUpdate {
  * replay. The row starts as `failed`/500: if the process dies mid-way the row is still honest.
  */
 export async function insertEvent(pool: Pool, e: NewEvent): Promise<string> {
-  const params = [e.apiKeyId, e.requestId, e.batchIndex, e.payloadHash ?? null, e.deviceImei ?? null];
-  const sql = `INSERT INTO webhook_events (api_key_id, request_id, batch_index, payload_hash, device_imei, status, http_status, raw_body, raw_text)
-               VALUES ($1, $2, $3, $4, $5, 'failed', 500, $6::jsonb, $7) RETURNING id`;
+  let rawText = e.rawText ?? null;
+  let rawBytes = e.rawBytes ? Buffer.from(e.rawBytes) : null;
+  // Postgres text cannot hold a NUL byte, so that body is kept byte for byte instead.
+  if (rawText?.includes('\u0000')) {
+    rawBytes = Buffer.from(rawText, 'utf8');
+    rawText = null;
+  }
   const rawJson = e.rawBody === undefined ? null : JSON.stringify(e.rawBody);
+  const sql = `INSERT INTO webhook_events (api_key_id, request_id, batch_index, payload_hash, device_imei, status, http_status, raw_body, raw_text, raw_bytes)
+               VALUES ($1, $2, $3, $4, $5, 'failed', 500, $6::jsonb, $7, $8) RETURNING id`;
+  const params = [e.apiKeyId, e.requestId, e.batchIndex, e.payloadHash ?? null, e.deviceImei ?? null];
   try {
-    const { rows } = await pool.query<{ id: string }>(sql, [...params, rawJson, e.rawText ?? null]);
+    const { rows } = await pool.query<{ id: string }>(sql, [...params, rawJson, rawText, rawBytes]);
     return rows[0]!.id;
   } catch (err) {
-    // jsonb cannot hold \u0000; keep the item as text instead of losing the audit row.
-    if ((err as { code?: string }).code === '22P05' && rawJson !== null) {
-      const { rows } = await pool.query<{ id: string }>(sql, [...params, null, rawJson]);
+    // jsonb rejects some valid JSON: \u0000 and lone surrogates (SQLSTATE class 22, data
+    // exception) and very deep nesting (class 54, program limit). Keep the item as JSON text
+    // instead of losing the audit row. Any other error (database down) is thrown.
+    const code = (err as { code?: string }).code ?? '';
+    if (rawJson !== null && (code.startsWith('22') || code.startsWith('54'))) {
+      const { rows } = await pool.query<{ id: string }>(sql, [...params, null, rawJson, null]);
       return rows[0]!.id;
     }
     throw err;
   }
 }
+
+/** jsonb cannot hold NUL or a lone surrogate, and a message can quote payload text. Make it safe. */
+const storableText = (text: string): string => text.replaceAll('\u0000', '').toWellFormed();
+const storableIssues = (issues: Issue[]): string =>
+  JSON.stringify(issues.map((i) => ({ ...i, path: storableText(i.path), message: storableText(i.message) })));
 
 export async function finalizeEvent(db: Pool | PoolClient, id: string, u: EventUpdate): Promise<void> {
   await db.query(
@@ -56,7 +73,7 @@ export async function finalizeEvent(db: Pool | PoolClient, id: string, u: EventU
        processed_at = now()
      WHERE id = $1`,
     [
-      id, u.status, u.httpStatus, JSON.stringify(u.errors), JSON.stringify(u.warnings),
+      id, u.status, u.httpStatus, storableIssues(u.errors), storableIssues(u.warnings),
       u.sensorReadingId ?? null, u.locationReadingId ?? null, u.payloadHash ?? null, u.deviceImei ?? null,
     ],
   );
@@ -85,7 +102,8 @@ export async function listEvents(pool: Pool, f: EventFilter): Promise<unknown[]>
 export async function getEvent(pool: Pool, id: string, apiKeyId: string | null): Promise<unknown | null> {
   const { rows } = await pool.query(
     `SELECT e.id, e.received_at, e.processed_at, e.request_id, e.batch_index, e.status, e.http_status,
-            e.device_imei, e.payload_hash, e.raw_body, e.raw_text, e.errors, e.warnings,
+            e.device_imei, e.payload_hash, e.raw_body, e.raw_text, encode(e.raw_bytes, 'base64') AS raw_base64,
+            e.errors, e.warnings,
             e.sensor_reading_id, e.location_reading_id, k.name AS api_key_name
      FROM webhook_events e LEFT JOIN api_keys k ON k.id = e.api_key_id
      WHERE e.id = $1 AND ($2::uuid IS NULL OR e.api_key_id = $2)`,

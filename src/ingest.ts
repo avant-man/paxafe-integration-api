@@ -111,12 +111,15 @@ export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: 
   }
 }
 
-/** Records a request-level rejection (invalid JSON, bad batch size) as one rejected event. */
+/** What the audit row keeps of a rejected request: parsed JSON, the text, or the bytes. */
+export type RawRequest = { rawBody?: unknown; rawText?: string; rawBytes?: Uint8Array };
+
+/** Records a request-level rejection (encoding, invalid JSON, too deep, bad batch size) as one rejected event. */
 export async function rejectRequest(
   ctx: IngestContext,
   httpStatus: number,
   error: Issue,
-  raw: { rawText?: string; rawBody?: unknown },
+  raw: RawRequest,
 ): Promise<ItemResult> {
   const eventId = await insertEvent(ctx.pool, { apiKeyId: ctx.apiKey.id, requestId: ctx.requestId, batchIndex: null, ...raw });
   await finalizeEvent(ctx.pool, eventId, { status: 'rejected', httpStatus, errors: [error], warnings: [] });

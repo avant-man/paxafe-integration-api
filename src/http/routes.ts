@@ -4,9 +4,10 @@ import type { Config } from '../config.js';
 import { EVENT_STATUSES, getEvent, listEvents, type EventStatus } from '../db/events.js';
 import type { Pool } from '../db/pool.js';
 import { getDeviceReadings } from '../db/readings.js';
-import { ingestItem, rejectRequest, summarize, type IngestContext } from '../ingest.js';
+import { ingestItem, rejectRequest, summarize, type IngestContext, type RawRequest } from '../ingest.js';
 import { IMEI_PATTERN } from '../transform/validate.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
+import { decodeUtf8, nestedDeeperThan } from './body.js';
 import type { AppEnv } from './env.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -37,24 +38,36 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
       const ctx: IngestContext = {
         pool, log: c.get('log'), apiKey: c.get('apiKey'), requestId: c.get('requestId'), nowMs: now(),
       };
-      const text = await c.req.text();
+      const bytes = new Uint8Array(await c.req.arrayBuffer());
+      const reject = async (status: ContentfulStatusCode, code: string, message: string, raw: RawRequest) => {
+        const r = await rejectRequest(ctx, status, { code, path: '', message }, raw);
+        return c.json(r.body, status);
+      };
+
+      // Compressed bodies are not decoded: that would need a second size limit (gzip bombs).
+      const encoding = c.req.header('content-encoding')?.trim().toLowerCase();
+      if (encoding && encoding !== 'identity') {
+        return reject(415, 'UNSUPPORTED_ENCODING', `Content-Encoding "${encoding}" is not supported; send uncompressed JSON`, { rawBytes: bytes });
+      }
+      const text = decodeUtf8(bytes);
+      if (text === null) {
+        return reject(400, 'INVALID_JSON', 'Body is not valid UTF-8 text, so it cannot be JSON', { rawBytes: bytes });
+      }
 
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);
       } catch (err) {
-        const r = await rejectRequest(ctx, 400, { code: 'INVALID_JSON', path: '', message: `Body is not valid JSON: ${(err as Error).message}` }, { rawText: text });
-        return c.json(r.body, 400);
+        return reject(400, 'INVALID_JSON', `Body is not valid JSON: ${(err as Error).message}`, { rawText: text });
+      }
+      // Checked before anything stores or walks the value.
+      if (nestedDeeperThan(parsed, config.maxJsonDepth)) {
+        return reject(400, 'PAYLOAD_TOO_DEEP', `Objects and arrays may nest at most ${config.maxJsonDepth} levels deep`, { rawText: text });
       }
 
       if (Array.isArray(parsed)) {
         if (parsed.length === 0 || parsed.length > config.maxBatchSize) {
-          const r = await rejectRequest(ctx, 400, {
-            code: 'BATCH_SIZE_INVALID',
-            path: '',
-            message: `An array body must hold 1 to ${config.maxBatchSize} items, got ${parsed.length}`,
-          }, { rawBody: parsed });
-          return c.json(r.body, 400);
+          return reject(400, 'BATCH_SIZE_INVALID', `An array body must hold 1 to ${config.maxBatchSize} items, got ${parsed.length}`, { rawBody: parsed });
         }
         // Sequential on purpose: repeats inside one batch resolve in order (first write wins).
         const results = [];

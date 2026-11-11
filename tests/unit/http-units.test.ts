@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractApiKey } from '../../src/http/auth.js';
+import { decodeUtf8, nestedDeeperThan } from '../../src/http/body.js';
 import { TokenBucketLimiter } from '../../src/http/rate-limit.js';
 import { hashPayload, stableStringify } from '../../src/transform/hash.js';
 
@@ -34,5 +35,21 @@ describe('stable hashing', () => {
     expect(stableStringify({ b: 1, a: { d: [1, { y: 2, x: 1 }], c: null } })).toBe('{"a":{"c":null,"d":[1,{"x":1,"y":2}]},"b":1}');
     expect(hashPayload({ a: 1, b: 2 })).toBe(hashPayload({ b: 2, a: 1 }));
     expect(hashPayload({ a: 1 })).not.toBe(hashPayload({ a: 2 }));
+  });
+});
+
+describe('request body helpers', () => {
+  it('decodeUtf8 returns null for bytes that are not UTF-8', () => {
+    expect(decodeUtf8(new TextEncoder().encode('{"a":"é"}'))).toBe('{"a":"é"}');
+    expect(decodeUtf8(new Uint8Array([0x1f, 0x8b, 0x08, 0xff]))).toBeNull();
+  });
+
+  it('nestedDeeperThan counts objects and arrays and stops early', () => {
+    expect(nestedDeeperThan({ a: [{ b: 1 }] }, 3)).toBe(false);
+    expect(nestedDeeperThan({ a: [{ b: {} }] }, 3)).toBe(true);
+    expect(nestedDeeperThan(42, 0)).toBe(false);
+    let deep: unknown = 1;
+    for (let i = 0; i < 100_000; i += 1) deep = [deep];
+    expect(nestedDeeperThan(deep, 64)).toBe(true);
   });
 });

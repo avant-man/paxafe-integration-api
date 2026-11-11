@@ -21,6 +21,31 @@ export interface ValidationResult {
   timestampMs: number | null;
 }
 
+/**
+ * Postgres text and jsonb cannot hold the NUL character or a lone UTF-16 surrogate, so such a
+ * string failed the insert with 500 on every retry. Returns the first one found, in a value or a
+ * key, as a hard error. For a bad key the path is the parent object, so the key is never echoed.
+ */
+export function findBadString(value: unknown, path = ''): Issue | null {
+  if (typeof value === 'string') return badText(value, path);
+  if (typeof value !== 'object' || value === null) return null;
+  for (const [key, child] of Object.entries(value)) {
+    const issue = badText(key, path) ?? findBadString(child, path === '' ? key : `${path}.${key}`);
+    if (issue) return issue;
+  }
+  return null;
+}
+
+function badText(text: string, path: string): Issue | null {
+  if (text.includes('\u0000')) {
+    return { code: 'CONTROL_CHARACTER', path, message: 'Text must not contain the NUL character (\\u0000)' };
+  }
+  if (!text.isWellFormed()) {
+    return { code: 'INVALID_STRING', path, message: 'Text must be valid Unicode (it has a lone surrogate)' };
+  }
+  return null;
+}
+
 /** Hard rules. Any error means the item is rejected (HTTP 422). */
 export function validate(payload: JsonObject, options: ValidateOptions, sentAccountId: unknown = payload.AccountId): ValidationResult {
   const errors: Issue[] = [];

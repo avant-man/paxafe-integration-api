@@ -44,8 +44,25 @@ change it. No item changes the response fields that the spec defines.
 - **(beyond spec) Request-level rejects use the single-item shape.** Invalid JSON (400,
   `INVALID_JSON`) and a bad batch size (400, `BATCH_SIZE_INVALID`) return
   `{event_id, request_id, status: "rejected", errors: [...]}` and are stored as one rejected event.
-- **401, 413, 415 and 429 are not stored as events.** The caller is not trusted (401, 429), or
-  the body is not read (413, 415). They are logged with the request id.
+- **401, 413, 429 and the Content-Type 415 are not stored as events.** The caller is not trusted
+  (401, 429), or the body is not read (413, 415). They are logged with the request id.
+- **(beyond spec) Every body that is read leaves an audit row, whatever its bytes.** Before this,
+  some bodies gave a 500 with no row at all. The rules, in order:
+  - `Content-Encoding` other than `identity` → 415 `UNSUPPORTED_ENCODING`, stored. We do not
+    decode gzip: that needs a second size limit against gzip bombs, and Tive sends plain JSON.
+  - Bytes that are not UTF-8 (for example gzip without the header) → 400 `INVALID_JSON`.
+  - Invalid JSON → 400 `INVALID_JSON`, as before.
+  - Objects and arrays nested more than 64 levels → 400 `PAYLOAD_TOO_DEEP`. A Tive payload needs
+    4. Deep input broke the jsonb insert and the transform (stack depth).
+  - A string or key with NUL (`\u0000`) → 422 `CONTROL_CHARACTER`. A lone UTF-16 surrogate → 422
+    `INVALID_STRING`. Postgres text and jsonb cannot store either, so the insert failed with 500
+    on every retry. The rule runs before every other rule, so no warning quotes the bad text.
+- **(beyond spec) Where the raw body is kept.** `raw_body` (jsonb) holds parsed JSON. When jsonb
+  rejects it (NUL, lone surrogate, SQLSTATE class 22 or 54), the same JSON goes to `raw_text`.
+  Text that is not valid JSON goes to `raw_text`. Bytes that Postgres text cannot hold (not
+  UTF-8, or a NUL byte) go to the new `raw_bytes` (bytea) column, and `GET /api/events/:id` shows
+  them as `raw_base64`. Error and warning messages are stripped of NUL and lone surrogates before
+  they are stored, because a `JSON.parse` message can quote the body.
 - **Battery and dBm go only into the location record.** PX has no sensor field for them, so an
   invalid location drops them too. The raw payload in `webhook_events` still holds them.
 - **`ProbeTemperature` is kept only in `sensor_readings.probe_temperature_c`.** It is never used
