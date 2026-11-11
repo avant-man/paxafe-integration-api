@@ -50,11 +50,16 @@ function checkTemperature(value: number | null, path: string, unit: 'C' | 'F', c
   return value;
 }
 
-/** Celsius for a Temperature-like object; derives it from a valid Fahrenheit when Celsius is null. */
+/**
+ * Celsius for a Temperature-like object. Derives it from a valid Fahrenheit only when Celsius is
+ * missing (absent, null, or not a number). A Celsius that was sent but failed a check (sentinel,
+ * out of range) means the sensor is bad, so its Fahrenheit twin is not trusted either.
+ */
 function cleanTemperature(obj: unknown, base: string, c: Collector): number | null {
-  const celsius = checkTemperature(num(obj, 'Celsius'), `${base}.Celsius`, 'C', c);
+  const sentCelsius = num(obj, 'Celsius');
+  const celsius = checkTemperature(sentCelsius, `${base}.Celsius`, 'C', c);
   const fahrenheit = checkTemperature(num(obj, 'Fahrenheit'), `${base}.Fahrenheit`, 'F', c);
-  if (celsius === null && fahrenheit !== null) {
+  if (sentCelsius === null && fahrenheit !== null) {
     const derived = fahrenheitToCelsius(fahrenheit);
     c.warnings.push({
       code: 'CELSIUS_DERIVED',

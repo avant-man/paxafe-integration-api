@@ -57,6 +57,20 @@ describe('temperature range and derivation', () => {
     expect(r.warnings.map((w) => w.code)).toEqual(['CELSIUS_DERIVED']);
   });
 
+  it('derives Celsius when the Celsius key is absent', () => {
+    const r = run({ Temperature: { Fahrenheit: 50 } });
+    expect(r.reading.temperatureC).toBe(10);
+  });
+
+  it.each([
+    ['out of range', 150, 'OUT_OF_RANGE'],
+    ['a sentinel', 327.67, 'SENSOR_SENTINEL'],
+  ])('does not derive Celsius when the sent Celsius is %s: the device said the sensor is bad', (_label, Celsius, code) => {
+    const r = run({ Temperature: { Celsius, Fahrenheit: 50 } });
+    expect(r.reading.temperatureC).toBeNull();
+    expect(r.warnings.map((w) => [w.code, w.path])).toEqual([[code, 'Temperature.Celsius']]);
+  });
+
   it('does not derive from a bad Fahrenheit', () => {
     const r = run({ Temperature: { Celsius: null, Fahrenheit: 621.806 } });
     expect(r.reading.temperatureC).toBeNull();

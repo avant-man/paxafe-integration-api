@@ -41,6 +41,10 @@ change it. No item changes the response fields that the spec defines.
   invalid location. Soft-rule warnings alone (sentinel, out of range) keep `processed`.
 - **(beyond spec) Fahrenheit gets the same sentinel and range checks**, through its Celsius
   equivalent. This blocks a bad Fahrenheit value from being used to derive Celsius.
+- **`CELSIUS_DERIVED` only when Celsius is missing.** Missing means absent, null, or not a number
+  (the spec treats a non-numeric value as missing). A Celsius that was sent but is a sentinel or
+  out of range stays null with its warning, and Fahrenheit is not used: the device reported a
+  bad sensor, and its Fahrenheit twin comes from the same sensor.
 - **(beyond spec) Column-capacity guards.** Lux above 999,999,999, an accelerometer value above
   9,999 in absolute value, and accuracy or Wi-Fi counts above int32 become null with
   `OUT_OF_RANGE`. Without this a nonsense value would overflow a `numeric` column and fail with 500.
