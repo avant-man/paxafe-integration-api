@@ -1,0 +1,27 @@
+# Render Blueprint: one Docker web service plus a managed Postgres.
+# To use Neon instead, delete the databases block and set DATABASE_URL by hand (sslmode=require).
+services:
+  - type: web
+    name: paxafe-integration-api
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: paxafe-db
+          property: connectionString
+      - key: LOG_LEVEL
+        value: info
+      - key: RATE_LIMIT_PER_MIN
+        value: "600"
+      - key: SEED_API_KEY
+        sync: false
+
+databases:
+  - name: paxafe-db
+    plan: free
+    databaseName: paxafe
+    user: paxafe
