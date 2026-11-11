@@ -55,3 +55,11 @@ describe('normalize', () => {
     expect(input.Temperature.Celsius).toBe('1');
   });
 });
+
+describe('numeric strings that overflow', () => {
+  it('treats "1e400" as not a number instead of coercing it to Infinity', () => {
+    const { normalized, warnings } = normalize({ Location: { Latitude: '1e400', Longitude: '-1e999' } });
+    expect(normalized).toEqual({ Location: { Latitude: null, Longitude: null } });
+    expect(warnings.map((w) => [w.code, w.path])).toEqual([['NOT_A_NUMBER', 'Location.Latitude'], ['NOT_A_NUMBER', 'Location.Longitude']]);
+  });
+});

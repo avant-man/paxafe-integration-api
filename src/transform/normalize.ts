@@ -58,7 +58,8 @@ export function normalize(payload: JsonObject): { normalized: JsonObject; warnin
       }
       continue;
     }
-    if (typeof value === 'string' && NUMERIC_TEXT.test(value.trim())) {
+    // "1e400" matches the pattern but is Infinity as a number, so it is not a number here.
+    if (typeof value === 'string' && NUMERIC_TEXT.test(value.trim()) && Number.isFinite(Number(value.trim()))) {
       parent[leaf] = Number(value.trim());
       warnings.push({ code: 'NUMERIC_STRING_COERCED', path, message: `Numeric string "${value}" coerced to a number` });
       continue;

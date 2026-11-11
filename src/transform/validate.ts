@@ -6,6 +6,8 @@ export const IMEI_PATTERN = /^[0-9]{15}$/;
 export const SECONDS_THRESHOLD = 1e11;
 export const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const UTC_TOLERANCE_MS = 1000;
+/** ISO 8601 date-time with Z or an offset. Without one, Date.parse reads local time, which is not UTC. */
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
 
 export interface ValidateOptions {
   /** Current time in epoch ms. Injected so the rules stay pure and testable. */
@@ -90,9 +92,13 @@ export function validate(payload: JsonObject, options: ValidateOptions, sentAcco
     }
     const utc = payload.EntryTimeUtc;
     if (utc !== undefined && utc !== null) {
-      const utcMs = typeof utc === 'string' ? Date.parse(utc) : Number.NaN;
+      const utcMs = typeof utc === 'string' && ISO_UTC.test(utc.trim()) ? Date.parse(utc.trim()) : Number.NaN;
       if (Number.isNaN(utcMs)) {
-        warnings.push({ code: 'TIMESTAMP_MISMATCH', path: 'EntryTimeUtc', message: 'EntryTimeUtc is not a valid date-time; EntryTimeEpoch is used' });
+        warnings.push({
+          code: 'TIMESTAMP_UTC_UNPARSEABLE',
+          path: 'EntryTimeUtc',
+          message: 'EntryTimeUtc is not an ISO 8601 date-time with Z or an offset; EntryTimeEpoch is used',
+        });
       } else if (Math.abs(utcMs - timestampMs) > UTC_TOLERANCE_MS) {
         warnings.push({
           code: 'TIMESTAMP_MISMATCH',

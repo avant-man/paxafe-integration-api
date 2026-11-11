@@ -52,7 +52,8 @@ change it. No item changes the response fields that the spec defines.
 - **(beyond spec) `NUMERIC_STRING_COERCED` warning.** The spec coerces `"10.5"` silently. A
   warning keeps a record that the sender sent strings, and the status stays `processed`.
 - **(beyond spec) `NOT_A_NUMBER` warning code.** The spec says "missing + warning" for a
-  non-numeric string but gives no code. This is the code we use.
+  non-numeric string but gives no code. This is the code we use. A numeric string that
+  overflows to Infinity (`"1e400"`) is also `NOT_A_NUMBER`, not `NUMERIC_STRING_COERCED`.
 - **`partial` means one of the two records was not stored.** Today that happens only for an
   invalid location. Soft-rule warnings alone (sentinel, out of range) keep `processed`.
 - **(beyond spec) Fahrenheit gets the same sentinel and range checks**, through its Celsius
@@ -66,8 +67,11 @@ change it. No item changes the response fields that the spec defines.
   `OUT_OF_RANGE`. Without this a nonsense value would overflow a `numeric` column and fail with 500.
 - **(beyond spec) A non-integer `AccountId` becomes null with `OUT_OF_RANGE`.** The record is not
   rejected, because AccountId is not a hard rule in the spec.
-- **An unparseable `EntryTimeUtc` gives `TIMESTAMP_MISMATCH`.** The epoch stays the source of
-  truth, as the spec says for a mismatch.
+- **(beyond spec) An `EntryTimeUtc` that is not ISO 8601 with `Z` or an offset gives
+  `TIMESTAMP_UTC_UNPARSEABLE`** (it was `TIMESTAMP_MISMATCH`). `Date.parse` reads a value with no
+  offset as local time and accepts loose text such as `"2025"`, so the check could warn or stay
+  silent for the wrong reason. A `T` or a space between date and time is fine. The epoch stays
+  the source of truth.
 - **(beyond spec) `PAYLOAD_NOT_OBJECT` (422)** for an item that is not a JSON object, for
   example `42` in a batch.
 - **(beyond spec) Request-level rejects use the single-item shape.** Invalid JSON (400,

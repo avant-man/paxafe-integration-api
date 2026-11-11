@@ -65,9 +65,19 @@ describe('validate (hard rules)', () => {
     expect(validate(base({ EntryTimeUtc: '2025-02-10T19:27:27Z' }), opts).warnings).toEqual([]);
   });
 
-  it('warns when EntryTimeUtc is not a date', () => {
-    expect(validate(base({ EntryTimeUtc: 'yesterday' }), opts).warnings.map((w) => w.code)).toEqual(['TIMESTAMP_MISMATCH']);
-  });
+  it.each(['yesterday', '2025', '2025-02-10T19:27:26', 'Feb 10 2025 19:27:26 GMT', 42])(
+    'warns TIMESTAMP_UTC_UNPARSEABLE when EntryTimeUtc %j is not ISO 8601 with Z or an offset',
+    (EntryTimeUtc) => {
+      expect(validate(base({ EntryTimeUtc }), opts).warnings.map((w) => w.code)).toEqual(['TIMESTAMP_UTC_UNPARSEABLE']);
+    },
+  );
+
+  it.each(['2025-02-10T19:27:26Z', '2025-02-10T19:27:26.000Z', '2025-02-10 19:27:26Z', '2025-02-10T20:27:26+01:00', '2025-02-10T14:27:26-0500'])(
+    'accepts EntryTimeUtc %s and compares it to the epoch',
+    (EntryTimeUtc) => {
+      expect(validate(base({ EntryTimeUtc }), opts).warnings).toEqual([]);
+    },
+  );
 
   it('rejects more than 24 h in the future, allows up to 24 h', () => {
     const day = 24 * 3600 * 1000;
