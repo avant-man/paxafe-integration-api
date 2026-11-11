@@ -35,4 +35,5 @@ services:
         value: "1200"
       - key: SEED_API_KEY
         generateValue: true   # random 256-bit value, upserted at boot as the key named "seed".
-                              # Copy it from the dashboard into the sender's TARGET_API_KEY.
+                              # Admin use only. Never give it to the public sender: it reads
+                              # every account. The sender gets a key scoped to account 478.

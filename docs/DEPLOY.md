@@ -133,7 +133,7 @@ For the end-to-end test through the sender UI, see the sender repo runbook.
 - **Logs**: Render dashboard > service > **Logs**. The API writes JSON lines with `request_id` and `event_id`.
 - **Redeploy**: push to `main`. Or dashboard > **Manual Deploy > Deploy latest commit**.
 - **Rollback**: dashboard > service > **Events** > pick an earlier deploy > **Rollback**. Migrations do not roll back. Each migration only adds or widens, so the earlier code still runs on the newer schema.
-- **Rotate the seed key**: dashboard > **Environment** > edit `SEED_API_KEY` > **Save and deploy**. Then update the key on the sender. The old seed key stops working because the row is upserted with the new hash.
+- **Rotate the seed key**: dashboard > **Environment** > edit `SEED_API_KEY` > **Save and deploy**. The sender does not use the seed key, so it needs no change. The old seed key stops working because the row is upserted with the new hash.
 - **Rotate the DB password**: Neon > **Roles** > reset password > put the new URL into `DATABASE_URL` on Render.
 - **Shutdown**: Render sends SIGTERM and waits up to 30 seconds. The API closes the HTTP server and the pool, and forces exit after 10 seconds.
 - **Backups**: Neon free keeps a short point-in-time restore window. Use Neon > **Branches** > restore if a test run corrupts data. There is no tested restore drill.

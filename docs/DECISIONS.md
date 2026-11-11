@@ -206,9 +206,10 @@ change it. No item changes the response fields that the spec defines.
 
 ## Operations
 
-- **(deviation) Compose host port is `${DB_PORT:-5435}`.** The first spec said 5433. On the build
-  machine, 5433 belonged to another project's database proxy, so a copied `.env.example` could
-  point at the wrong database. The default is now 5435, and `DB_PORT` overrides it.
+- **(deviation) Compose host port is `${DB_PORT:-5435}`.** The first spec said 5433. Port 5433 is a
+  common choice for a second local Postgres or a cloud database proxy, so a copied
+  `.env.example` could point at the wrong database. The default is now 5435, and `DB_PORT`
+  overrides it.
 - **Integration tests run in a throwaway Postgres schema.** `DATABASE_URL` can point at the dev
   database and the tests never touch its data.
 - **The Docker image is multi-stage, runs as the non-root `node` user, has no dev
