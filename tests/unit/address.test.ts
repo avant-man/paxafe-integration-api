@@ -55,4 +55,18 @@ describe('parseAddress', () => {
     expect(parseAddress('   ')).toBeNull();
     expect(parseAddress(42)).toBeNull();
   });
+
+  it('reads state and ZIP from the last part when there is no country', () => {
+    expect(parseAddress('Bronx, NY 10474')).toMatchObject({ locality: 'Bronx', state: 'NY', postal_code: '10474', country: null });
+    expect(parseAddress('5 Main St, Bronx, NY 10474')).toMatchObject({ street: '5 Main St', locality: 'Bronx', country: null });
+  });
+
+  it('parses a Canadian province and postal code', () => {
+    expect(parseAddress('Toronto, ON M5V 3L9, Canada')).toMatchObject({
+      street: null, locality: 'Toronto', state: 'ON', postal_code: 'M5V 3L9', country: 'Canada',
+    });
+    expect(parseAddress('100 King St, Toronto, ON M5X1A9')).toMatchObject({
+      street: '100 King St', locality: 'Toronto', state: 'ON', postal_code: 'M5X1A9', country: null,
+    });
+  });
 });

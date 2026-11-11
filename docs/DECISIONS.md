@@ -104,6 +104,12 @@ change it. No item changes the response fields that the spec defines.
 - **`ProbeTemperature` is kept only in `sensor_readings.probe_temperature_c`.** It is never used
   in place of the primary temperature, as the spec says.
 
+- **(beyond spec) Address parsing reads the last part as a state + postal code when it is one**
+  (`"Bronx, NY 10474"` has no country), and reads Canadian `"ON M5V 3L9"` as state + postal code.
+  A street is the first part when any part comes before the locality and it looks like a
+  street. The PX example is unchanged. Other countries keep the part before the country as the
+  locality as written (`"London SW1A 2AA"`).
+
 ## Idempotency
 
 - **Natural key `(device_imei, timestamp_ms)`. The first write wins for the whole reading.** The
