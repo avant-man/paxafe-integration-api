@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { runMigrations } from '../../src/db/migrate.js';
+import { runRetention } from '../../src/db/retention.js';
 import { createPool, type Pool } from '../../src/db/pool.js';
 import { createLogger } from '../../src/logger.js';
 
@@ -83,5 +84,41 @@ describe.skipIf(!url)('integration: migration runner and pool', () => {
     await expect(runMigrations(pool, logger, dir)).rejects.toThrow(/Migration 002_bad.sql failed/);
     const { rows } = await pool.query("SELECT to_regclass('half') AS half, (SELECT array_agg(version) FROM schema_migrations) AS done");
     expect(rows[0]).toEqual({ half: null, done: ['001_ok'] });
+  });
+
+  it('retention deletes old repeat and reject events in batches and clears old raw bodies', async () => {
+    const pool = await freshPool();
+    await runMigrations(pool, logger);
+    const add = (status: string, daysAgo: number) => pool.query(
+      `INSERT INTO webhook_events (request_id, status, http_status, raw_body, raw_text, received_at)
+       VALUES ('r', $1, 200, '{"a":1}', 'x', now() - make_interval(days => $2)) RETURNING id`,
+      [status, daysAgo],
+    );
+    for (const status of ['duplicate', 'duplicate_conflict', 'rejected']) {
+      await add(status, 31);
+      await add(status, 31);
+      await add(status, 29);
+    }
+    await add('failed', 400);
+    await add('processed', 91);
+    await add('partial', 91);
+    await add('processed', 89);
+
+    const result = await runRetention(pool, { eventDays: 30, rawDays: 90, batchSize: 2 });
+    expect(result).toEqual({ eventsDeleted: 6, rawBodiesCleared: 2 });
+
+    const { rows } = await pool.query(
+      `SELECT status, count(*)::int AS n, count(raw_body)::int AS with_raw FROM webhook_events GROUP BY status ORDER BY status`,
+    );
+    expect(rows).toEqual([
+      { status: 'duplicate', n: 1, with_raw: 1 },
+      { status: 'duplicate_conflict', n: 1, with_raw: 1 },
+      // failed rows are kept with their raw body: they are the replay queue.
+      { status: 'failed', n: 1, with_raw: 1 },
+      { status: 'partial', n: 1, with_raw: 0 },
+      { status: 'processed', n: 2, with_raw: 1 },
+      { status: 'rejected', n: 1, with_raw: 1 },
+    ]);
+    expect(await runRetention(pool, { eventDays: 30, rawDays: 90, batchSize: 2 })).toEqual({ eventsDeleted: 0, rawBodiesCleared: 0 });
   });
 });

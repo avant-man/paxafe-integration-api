@@ -195,6 +195,20 @@ change it. No item changes the response fields that the spec defines.
 - **Render Blueprint with a managed Postgres, and `SEED_API_KEY` set by hand (`sync: false`).**
   No secret goes into git.
 
+- **(beyond spec) `npm run retention` (in the image: `node dist/scripts/retention.js`).** It
+  deletes `duplicate`, `duplicate_conflict` and `rejected` events older than
+  `RETENTION_EVENT_DAYS` (30), and clears the raw body of `processed` and `partial` events older
+  than `RETENTION_RAW_DAYS` (90). It works in batches of `RETENTION_BATCH_SIZE` (1000) rows, so
+  no statement holds locks for long. It keeps `failed` events (the replay queue) and the events
+  that readings point at. Render free has no cron, so it runs by hand or from a scheduler.
+- **Scale path for storage:** at high volume, partition `webhook_events` and the reading tables
+  by month on `received_at` / `recorded_at`, and drop old partitions instead of deleting rows.
+- **Backups are what the free tier gives, nothing more.** Neon free keeps a short restore window
+  (point in time), so the recovery point is that window and the recovery time is a manual
+  branch restore. There is no tested restore drill. A paid plan or a `pg_dump` job is the next step.
+- **The `/health` check runs `SELECT 1`, so Render's health checks keep the Neon compute awake.**
+  That spends Neon free compute hours. It is the price of a health check that tests the database.
+
 ## Assumptions about the data
 
 - **Sample "Vaccine Shipment Southbound" has `EntryTimeEpoch` 19:27:26Z but `EntryTimeUtc`
