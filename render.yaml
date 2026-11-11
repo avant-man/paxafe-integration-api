@@ -1,27 +1,38 @@
-# Render Blueprint: one Docker web service plus a managed Postgres.
-# To use Neon instead, delete the databases block and set DATABASE_URL by hand (sslmode=require).
+# Render Blueprint: one Docker web service on the free plan. Postgres lives on Neon (free tier).
+# Render free Postgres expires 30 days after creation, so this file does not create one.
+# Runbook: docs/DEPLOY.md.
+#
+# DATABASE_URL should be the Neon DIRECT (unpooled) connection string, for example:
+#   postgresql://<user>:<password>@ep-xxxx.us-west-2.aws.neon.tech/neondb?sslmode=verify-full
+# The "-pooler" host also boots now (the pool sets its timeouts with SET after connect, and
+# migrations use a transaction advisory lock), but PgBouncer in transaction mode does not keep
+# session settings, so statement_timeout would not hold on every transaction. If you use the
+# pooled URL anyway, set DATABASE_URL_DIRECT to the direct URL for migrations.
+# sslmode=verify-full: node-postgres already treats "require" as verify-full and prints a
+# SECURITY WARNING at boot. verify-full says the same thing without the warning.
 services:
   - type: web
     name: paxafe-integration-api
     runtime: docker
     plan: free
+    region: oregon            # match the Neon project region (AWS us-west-2, Oregon)
     dockerfilePath: ./Dockerfile
-    healthCheckPath: /health
-    autoDeploy: true
+    healthCheckPath: /health  # returns 503 when the DB is down. Boot runs migrations before listen.
+    autoDeployTrigger: checksPass   # deploys only after CI (.github/workflows/ci.yml) is green
+    maxShutdownDelaySeconds: 30     # the app force-exits after 10 s, well inside this window
     envVars:
       - key: DATABASE_URL
-        fromDatabase:
-          name: paxafe-db
-          property: connectionString
+        sync: false           # paste the Neon direct URL when the Blueprint is created
+      - key: DATABASE_URL_DIRECT
+        sync: false           # optional: only when DATABASE_URL is the pooled URL
+      - key: NODE_ENV
+        value: production     # also set in the Dockerfile. Kept here so the dashboard shows it.
       - key: LOG_LEVEL
         value: info
       - key: RATE_LIMIT_PER_MIN
         value: "600"
+      - key: RATE_LIMIT_PER_IP_PER_MIN
+        value: "1200"
       - key: SEED_API_KEY
-        sync: false
-
-databases:
-  - name: paxafe-db
-    plan: free
-    databaseName: paxafe
-    user: paxafe
+        generateValue: true   # random 256-bit value, upserted at boot as the key named "seed".
+                              # Copy it from the dashboard into the sender's TARGET_API_KEY.

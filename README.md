@@ -45,6 +45,7 @@ npm run create-key -- tenant-478 478     # scoped to AccountId 478
 | `npm run build` / `npm start` | Compile to `dist/` and run it |
 | `npm run migrate` | Apply `migrations/*.sql` |
 | `npm run create-key -- <name> [accountId]` | Create an API key |
+| `npm run retention` | Delete old repeat and reject events, clear old raw bodies |
 | `npm test` | Unit, contract and golden tests. DB integration tests also run when `DATABASE_URL` is set |
 | `npm run typecheck` / `npm run lint` | `tsc --noEmit` / ESLint |
 
@@ -58,7 +59,7 @@ DATABASE_URL=postgres://paxafe:paxafe@localhost:5433/paxafe npm test
 
 | Variable | Default | Notes |
 |---|---|---|
-| `DATABASE_URL` | none (required) | Postgres connection string. Add `sslmode=require` for Neon |
+| `DATABASE_URL` | none (required) | Postgres connection string. Add `sslmode=verify-full` for Neon |
 | `PORT` | `3000` | |
 | `LOG_LEVEL` | `info` | pino level |
 | `SEED_API_KEY` | none | Upserted at boot as the unscoped key `seed` |
@@ -96,13 +97,13 @@ Other codes: `400` invalid JSON or bad batch size, `401` bad key, `413` body ove
 
 ## Deploy (Render)
 
-`render.yaml` defines a Docker web service and a managed Postgres. Create a Blueprint from
-the repo and set `SEED_API_KEY` in the dashboard. Migrations run at boot. The Docker image
-works on any container host:
+`render.yaml` defines a Docker web service. Postgres is on Neon. Steps are in
+`docs/DEPLOY.md`. Migrations run at boot. The Docker image works on any container host:
 
 ```bash
 docker build -t paxafe-integration-api .
 docker run -p 3000:3000 -e DATABASE_URL=... -e SEED_API_KEY=... paxafe-integration-api
+docker run --rm -e DATABASE_URL=... paxafe-integration-api node dist/scripts/create-key.js <name> [accountId]
 ```
 
 Or run the whole stack locally with `docker compose --profile app up -d --build`.
@@ -114,7 +115,7 @@ src/transform/   pure functions: normalize, validate, clean, map, address, round
 src/db/          pg pool, migration runner, repositories (keys, events, readings)
 src/http/        Hono app, auth, rate limit, request id and logging, routes
 src/ingest.ts    one item: audit row -> transform -> transactional store
-src/scripts/     migrate, create-key
+src/scripts/     migrate, create-key, retention
 migrations/      plain SQL
 tests/unit       rules, contract test over every sample, golden test
 tests/integration HTTP + Postgres (runs when DATABASE_URL is set)

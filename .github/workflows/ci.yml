@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: paxafe
+          POSTGRES_PASSWORD: paxafe
+          POSTGRES_DB: paxafe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U paxafe -d paxafe"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+    env:
+      # The integration tests run in their own throwaway schema. Without this they are skipped.
+      TEST_DATABASE_URL: postgres://paxafe:paxafe@localhost:5432/paxafe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: check
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the image Render will build
+        run: docker build -t paxafe-api:ci .
+      - name: Boot the image against Postgres and hit /health
+        run: |
+          docker network create ci
+          docker run -d --name db --network ci -e POSTGRES_USER=paxafe -e POSTGRES_PASSWORD=paxafe -e POSTGRES_DB=paxafe postgres:16
+          until docker exec db pg_isready -U paxafe -d paxafe; do sleep 1; done
+          docker run -d --name api --network ci -p 10000:10000 -e PORT=10000 \
+            -e DATABASE_URL=postgres://paxafe:paxafe@db:5432/paxafe -e SEED_API_KEY=ci-key paxafe-api:ci
+          for i in $(seq 1 30); do curl -fsS localhost:10000/health && break; sleep 1; done
+          curl -fsS localhost:10000/health || { docker logs api; exit 1; }
+      - name: Run the compiled scripts in the image (no tsx there)
+        run: |
+          DB=postgres://paxafe:paxafe@db:5432/paxafe
+          docker run --rm --network ci -e DATABASE_URL=$DB paxafe-api:ci node dist/scripts/migrate.js
+          docker run --rm --network ci -e DATABASE_URL=$DB paxafe-api:ci node dist/scripts/create-key.js ci-check
+          docker run --rm --network ci -e DATABASE_URL=$DB paxafe-api:ci node dist/scripts/retention.js

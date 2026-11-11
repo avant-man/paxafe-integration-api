@@ -4,7 +4,7 @@ import { runMigrations } from '../db/migrate.js';
 import { createPool } from '../db/pool.js';
 import { createLogger } from '../logger.js';
 
-// Usage: npm run create-key -- <name> [accountId]
+// Usage: npm run create-key -- <name> [accountId]   (in the image: node dist/scripts/create-key.js <name> [accountId])
 const [name, accountArg] = process.argv.slice(2);
 if (!name) {
   console.error('Usage: npm run create-key -- <name> [accountId]');
