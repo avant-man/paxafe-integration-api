@@ -9,10 +9,6 @@ import { createPool, type Pool } from '../../src/db/pool.js';
 import { createApp } from '../../src/http/app.js';
 import { createLogger } from '../../src/logger.js';
 
-/**
- * Early rejects over a real keep-alive socket. A response sent before the body is read must
- * not break the next request on the same connection ("other side closed").
- */
 const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 const KEY = 'ka-seed-key';
 
@@ -22,7 +18,6 @@ describe.skipIf(!url)('integration: keep-alive after an early reject', () => {
   let pool: Pool;
   let server: ServerType;
   let port: number;
-  // fetch (undici, as the sender uses) keeps the connection alive and reuses it for the next call.
   const base = () => `http://127.0.0.1:${port}`;
   const followUp = () => fetch(`${base()}/api/events?limit=1`, { headers: { 'x-api-key': KEY } });
 
@@ -58,7 +53,6 @@ describe.skipIf(!url)('integration: keep-alive after an early reject', () => {
   ];
 
   it.each(cases)('the next request on the connection works after a %s', async (_label, headers, status) => {
-    // The failure was intermittent (about 1 in 10 rounds), so try many.
     for (let i = 0; i < 100; i += 1) {
       const first = await fetch(`${base()}/api/webhook/tive`, { method: 'POST', headers, body: big });
       await first.text();

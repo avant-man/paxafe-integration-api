@@ -66,7 +66,7 @@ describe('per-IP limit helpers', () => {
     let t = 0;
     const limiter = new TokenBucketLimiter(60, () => t, 100);
     for (let i = 0; i < 100; i += 1) limiter.take(`ip-${i}`);
-    t += 60_000; // every bucket is full again
+    t += 60_000;
     limiter.take('one-more');
     expect(limiter.size).toBe(1);
   });

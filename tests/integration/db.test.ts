@@ -8,7 +8,6 @@ import { runRetention } from '../../src/db/retention.js';
 import { createPool, type Pool } from '../../src/db/pool.js';
 import { createLogger } from '../../src/logger.js';
 
-/** Migration runner and pool settings, against a real Postgres in throwaway schemas. */
 const url = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
 const logger = createLogger('silent');
 
@@ -44,7 +43,6 @@ describe.skipIf(!url)('integration: migration runner and pool', () => {
 
   it('sets the session timeouts after connect, not as startup parameters', async () => {
     const pool = await freshPool();
-    // A transaction-mode pooler (Neon's PgBouncer) rejects unknown startup parameters.
     expect((pool as unknown as { options: Record<string, unknown> }).options).not.toHaveProperty('statement_timeout');
     const { rows } = await pool.query(
       "SELECT current_setting('statement_timeout') AS st, current_setting('idle_in_transaction_session_timeout') AS idle",
@@ -59,7 +57,6 @@ describe.skipIf(!url)('integration: migration runner and pool', () => {
     });
     expect(await runMigrations(pool, logger, dir)).toEqual(['001_probe']);
     expect((await pool.query('SELECT st, lt FROM probe')).rows).toEqual([{ st: '0', lt: '5s' }]);
-    // The session settings are back after the transaction.
     expect((await pool.query("SELECT current_setting('statement_timeout') AS st")).rows[0].st).toBe('10s');
   });
 
@@ -113,7 +110,6 @@ describe.skipIf(!url)('integration: migration runner and pool', () => {
     expect(rows).toEqual([
       { status: 'duplicate', n: 1, with_raw: 1 },
       { status: 'duplicate_conflict', n: 1, with_raw: 1 },
-      // failed rows are kept with their raw body: they are the replay queue.
       { status: 'failed', n: 1, with_raw: 1 },
       { status: 'partial', n: 1, with_raw: 0 },
       { status: 'processed', n: 2, with_raw: 1 },

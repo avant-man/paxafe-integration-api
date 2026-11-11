@@ -2,21 +2,17 @@ import { existsSync } from 'node:fs';
 
 export interface Config {
   databaseUrl: string;
-  /** Optional direct (unpooled) URL. When set, migrations use it instead of databaseUrl. */
   databaseUrlDirect: string | null;
   port: number;
   logLevel: string;
   seedApiKey: string | null;
   rateLimitPerMin: number;
-  /** Requests per minute per client IP, checked before auth. Higher than the key limit on purpose. */
   rateLimitPerIpPerMin: number;
   bodyLimitBytes: number;
   maxBatchSize: number;
-  /** Deepest nesting of objects and arrays in a body. A Tive payload needs 4 (5 in a batch). */
   maxJsonDepth: number;
 }
 
-/** Loads `.env` for local runs. Variables already set in the environment win. */
 export function loadDotEnv(path = '.env'): void {
   if (existsSync(path)) process.loadEnvFile(path);
 }

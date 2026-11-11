@@ -23,5 +23,4 @@ export function schemaExample(fileName: string): unknown {
   return (JSON.parse(readFileSync(new URL(fileName, file), 'utf8')) as { examples: unknown[] }).examples[0];
 }
 
-/** A fixed clock after every sample timestamp. */
 export const NOW_MS = Date.parse('2026-01-01T00:00:00Z');

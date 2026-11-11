@@ -6,10 +6,6 @@ interface Bucket {
   updatedAt: number;
 }
 
-/**
- * Token bucket per key: `perMinute` capacity, refilled continuously. In memory, so the
- * limit is per instance; a shared limit needs Redis or the database (see docs/DECISIONS.md).
- */
 export class TokenBucketLimiter {
   private readonly buckets = new Map<string, Bucket>();
   private readonly ratePerMs: number;
@@ -17,13 +13,11 @@ export class TokenBucketLimiter {
   constructor(
     private readonly perMinute: number,
     private readonly now: () => number = Date.now,
-    /** Above this many buckets, refilled ones are dropped, so many client IPs cannot grow memory without end. */
     private readonly maxKeys = 10_000,
   ) {
     this.ratePerMs = perMinute / 60_000;
   }
 
-  /** Takes one token. Returns the seconds to wait when the bucket is empty. */
   take(key: string): { allowed: boolean; remaining: number; retryAfterSec: number } {
     const t = this.now();
     if (!this.buckets.has(key) && this.buckets.size >= this.maxKeys) this.dropFullBuckets(t);
@@ -38,7 +32,6 @@ export class TokenBucketLimiter {
     return { allowed: false, remaining: 0, retryAfterSec: Math.max(1, Math.ceil((1 - bucket.tokens) / this.ratePerMs / 1000)) };
   }
 
-  /** A full bucket holds nothing a new one would not, so it is safe to forget. */
   private dropFullBuckets(t: number): void {
     for (const [key, b] of this.buckets) {
       if (b.tokens + (t - b.updatedAt) * this.ratePerMs >= this.perMinute) this.buckets.delete(key);
@@ -54,11 +47,7 @@ export class TokenBucketLimiter {
   }
 }
 
-/**
- * The client address for the per-IP limit. Behind Render's proxy the socket address is the
- * proxy, so the last X-Forwarded-For entry (the one the proxy added) is used. Entries to its
- * left come from the client and can be forged, so they are ignored.
- */
+// Use the last X-Forwarded-For entry, since earlier ones can be forged.
 export function clientIp(forwardedFor: string | undefined, socketAddress: string | undefined): string {
   const last = forwardedFor?.split(',').pop()?.trim();
   return last || socketAddress || 'unknown';

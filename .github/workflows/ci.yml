@@ -31,7 +31,7 @@ jobs:
           --health-timeout 3s
           --health-retries 30
     env:
-      # The integration tests run in their own throwaway schema. Without this they are skipped.
+      # Without this, the integration tests are skipped.
       TEST_DATABASE_URL: postgres://paxafe:paxafe@localhost:5432/paxafe
     steps:
       - uses: actions/checkout@v4

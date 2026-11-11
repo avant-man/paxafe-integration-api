@@ -6,7 +6,6 @@ services:
       POSTGRES_PASSWORD: paxafe
       POSTGRES_DB: paxafe
     ports:
-      # Host port 5435 avoids a local Postgres on 5432. Override with DB_PORT if 5435 is taken.
       - "${DB_PORT:-5435}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -16,7 +15,6 @@ services:
       timeout: 3s
       retries: 30
 
-  # Optional: the API in a container. Start with `docker compose up -d --build api`.
   api:
     build: .
     profiles: ["app"]

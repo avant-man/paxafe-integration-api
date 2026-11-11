@@ -1,11 +1,8 @@
--- 001_init: API keys, the ingest audit log (webhook_events), devices and the two PX reading tables.
--- gen_random_uuid() is built in since PostgreSQL 13.
-
 CREATE TABLE api_keys (
   id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name          text NOT NULL,
-  key_hash      char(64) NOT NULL UNIQUE,          -- SHA-256 hex of the key; the key itself is never stored
-  account_id    integer NULL,                      -- when set, payloads with a different AccountId are rejected
+  key_hash      char(64) NOT NULL UNIQUE,
+  account_id    integer NULL,
   created_at    timestamptz NOT NULL DEFAULT now(),
   last_used_at  timestamptz NULL,
   revoked_at    timestamptz NULL
@@ -16,13 +13,13 @@ CREATE TABLE webhook_events (
   received_at         timestamptz NOT NULL DEFAULT now(),
   api_key_id          uuid NULL REFERENCES api_keys(id),
   request_id          text NOT NULL,
-  batch_index         integer NULL,                -- position in an array body, null for a single object
+  batch_index         integer NULL,
   status              text NOT NULL CHECK (status IN
                         ('processed', 'partial', 'duplicate', 'duplicate_conflict', 'rejected', 'failed')),
   http_status         integer NOT NULL,
-  raw_body            jsonb NULL,                  -- the item as received (parsed JSON)
-  raw_text            text NULL,                   -- the body text when it is not valid JSON
-  payload_hash        char(64) NULL,               -- SHA-256 of the normalized payload
+  raw_body            jsonb NULL,
+  raw_text            text NULL,
+  payload_hash        char(64) NULL,
   device_imei         text NULL,
   errors              jsonb NOT NULL DEFAULT '[]'::jsonb,
   warnings            jsonb NOT NULL DEFAULT '[]'::jsonb,
@@ -38,13 +35,13 @@ CREATE INDEX webhook_events_api_key_received_at_idx ON webhook_events (api_key_i
 
 CREATE TABLE devices (
   device_imei      text PRIMARY KEY,
-  device_id        text NOT NULL,                  -- latest DeviceName seen
+  device_id        text NOT NULL,
   account_id       integer NULL,
   provider         text NOT NULL,
   type             text NOT NULL,
   first_seen_at    timestamptz NOT NULL DEFAULT now(),
   last_seen_at     timestamptz NOT NULL DEFAULT now(),
-  last_reading_at  timestamptz NULL                -- newest reading timestamp, not arrival time
+  last_reading_at  timestamptz NULL
 );
 
 CREATE INDEX devices_account_id_idx ON devices (account_id);
@@ -65,12 +62,12 @@ CREATE TABLE sensor_readings (
   accel_y              numeric(7,3) NULL,
   accel_z              numeric(7,3) NULL,
   accel_magnitude      numeric(7,3) NULL,
-  probe_temperature_c  numeric(5,2) NULL,          -- no PX field for the probe; kept here only
+  probe_temperature_c  numeric(5,2) NULL,
   account_id           integer NULL,
   shipment_id          text NULL,
   public_shipment_id   text NULL,
   payload_hash         char(64) NOT NULL,
-  payload              jsonb NOT NULL,             -- the exact PX sensor document
+  payload              jsonb NOT NULL,
   created_at           timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT sensor_readings_device_ts_key UNIQUE (device_imei, timestamp_ms)
 );
@@ -100,7 +97,7 @@ CREATE TABLE location_readings (
   shipment_id          text NULL,
   public_shipment_id   text NULL,
   payload_hash         char(64) NOT NULL,
-  payload              jsonb NOT NULL,             -- the exact PX location document
+  payload              jsonb NOT NULL,
   created_at           timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT location_readings_device_ts_key UNIQUE (device_imei, timestamp_ms)
 );

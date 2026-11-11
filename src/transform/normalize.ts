@@ -1,6 +1,5 @@
 import type { Issue, JsonObject } from './types.js';
 
-/** Paths in the Tive payload that must hold numbers. Strings on these paths are coerced. */
 export const NUMERIC_PATHS: readonly string[] = [
   'EntryTimeEpoch',
   'AccountId',
@@ -31,11 +30,6 @@ export function isPlainObject(value: unknown): value is JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/**
- * Returns a deep copy of the payload with numeric paths coerced:
- * "10.5" -> 10.5 (warning NUMERIC_STRING_COERCED), a non-numeric value -> null
- * (warning NOT_A_NUMBER). Null and absent values are left as they are.
- */
 export function normalize(payload: JsonObject): { normalized: JsonObject; warnings: Issue[] } {
   const normalized = structuredClone(payload);
   const warnings: Issue[] = [];
@@ -58,7 +52,7 @@ export function normalize(payload: JsonObject): { normalized: JsonObject; warnin
       }
       continue;
     }
-    // "1e400" matches the pattern but is Infinity as a number, so it is not a number here.
+    // "1e400" matches the pattern but parses to Infinity.
     if (typeof value === 'string' && NUMERIC_TEXT.test(value.trim()) && Number.isFinite(Number(value.trim()))) {
       parent[leaf] = Number(value.trim());
       warnings.push({ code: 'NUMERIC_STRING_COERCED', path, message: `Numeric string "${value}" coerced to a number` });

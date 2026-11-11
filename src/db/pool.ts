@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-// bigint (int8) as number: ids and epoch ms stay far below 2^53. numeric as number for API output.
+// int8 and numeric parse as number, since values stay below 2^53.
 pg.types.setTypeParser(pg.types.builtins.INT8, (v) => Number(v));
 pg.types.setTypeParser(pg.types.builtins.NUMERIC, (v) => Number.parseFloat(v));
 
@@ -8,7 +8,6 @@ export type Pool = pg.Pool;
 export type PoolClient = pg.PoolClient;
 
 export interface PoolOptions {
-  /** Postgres search_path, used by the integration tests to run in an isolated schema. */
   searchPath?: string;
   max?: number;
 }
@@ -20,16 +19,14 @@ export function createPool(connectionString: string, options: PoolOptions = {}):
     connectionTimeoutMillis: 5_000,
     idleTimeoutMillis: 30_000,
   });
-  // Set once per new session with SET, not as startup parameters: a transaction-mode pooler
-  // (Neon's PgBouncer) rejects unknown startup parameters, so the API could not boot behind it.
-  // node-postgres runs queries on a client in order, so this runs before the caller's first query.
+  // SET, not startup parameters: Neon's PgBouncer rejects unknown ones.
   const settings = [
     'SET statement_timeout = 10000',
     'SET idle_in_transaction_session_timeout = 15000',
     ...(options.searchPath ? [`SET search_path TO ${options.searchPath}`] : []),
   ].join('; ');
   pool.on('connect', (client) => {
-    // A connection where SET fails is broken, and its next query fails with the real error.
+    // A broken connection fails its next query with the real error.
     client.query(settings).catch(() => undefined);
   });
   return pool;

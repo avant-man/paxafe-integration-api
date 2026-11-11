@@ -16,10 +16,6 @@ describe('golden test: "Standard Temperature Shipment"', () => {
   });
 });
 
-/**
- * Expected outcome per sample at transform level (no database). Sequential ingest adds
- * duplicate detection on top: see tests/integration.
- */
 const EXPECTED: Record<string, { ok: boolean; location: boolean; codes: string[] }> = {
   'Standard Temperature Shipment': { ok: true, location: true, codes: [] },
   'Device A571992 Reading': { ok: true, location: false, codes: ['LOCATION_INVALID'] },
@@ -34,7 +30,6 @@ const EXPECTED: Record<string, { ok: boolean; location: boolean; codes: string[]
   'Device A571992 Follow-up Reading': { ok: true, location: false, codes: ['LOCATION_INVALID'] },
   'Clinical Supply Shipment': { ok: true, location: true, codes: [] },
   'Minimal Data Payload': { ok: true, location: true, codes: [] },
-  // EntryTimeEpoch is 19:27:26Z but EntryTimeUtc says 14:27:26Z: the epoch is kept, with a warning.
   'Vaccine Shipment Southbound': { ok: true, location: true, codes: ['TIMESTAMP_MISMATCH'] },
   'Entity and Device Name': { ok: false, location: false, codes: ['DEVICE_ID_INVALID'] },
 };

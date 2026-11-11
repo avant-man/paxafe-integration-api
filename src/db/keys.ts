@@ -25,7 +25,6 @@ export async function findApiKey(pool: Pool, key: string): Promise<ApiKeyRecord 
   return { id: row.id, name: row.name, accountId: row.account_id, revoked: row.revoked_at !== null };
 }
 
-/** Records use at most once a minute per key, so auth does not write on every request. */
 export async function touchApiKey(pool: Pool, id: string): Promise<void> {
   await pool.query(
     `UPDATE api_keys SET last_used_at = now()
@@ -43,10 +42,6 @@ export async function createApiKey(pool: Pool, name: string, accountId: number |
   return { id: rows[0]!.id, key };
 }
 
-/**
- * Makes SEED_API_KEY the one valid key named "seed" (unscoped). Changing the env var
- * rotates the key: the old seed hash is replaced, not kept alongside.
- */
 export async function upsertSeedKey(pool: Pool, key: string): Promise<void> {
   const hash = hashApiKey(key);
   const updated = await pool.query(

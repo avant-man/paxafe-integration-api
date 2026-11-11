@@ -15,7 +15,6 @@ export interface IngestContext {
   nowMs: number;
 }
 
-/** One item in the response contract (see docs/DESIGN-SPEC.md, "Response contract"). */
 export interface ItemResultBody {
   event_id: string;
   request_id: string;
@@ -24,7 +23,6 @@ export interface ItemResultBody {
   location: { id: number; payload: PxLocation } | null;
   warnings: Issue[];
   errors: Issue[];
-  /** Present only for duplicate and duplicate_conflict: the rows the first write created. */
   duplicate_of?: { event_id: string; sensor_reading_id: number; location_reading_id: number | null };
 }
 
@@ -46,11 +44,6 @@ function body(ctx: IngestContext, eventId: string, status: EventStatus, extra: P
   };
 }
 
-/**
- * Runs one parsed item through audit insert -> transform -> store. Never throws: any failure,
- * even of the audit insert, becomes a `failed` result for this item only, so a batch still
- * lists every item. The event id is made here, so even that result carries one for the logs.
- */
 export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: number | null): Promise<ItemResult> {
   const eventId = randomUUID();
   const log = ctx.log.child({ event_id: eventId, batch_index: batchIndex });
@@ -117,10 +110,8 @@ export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: 
   }
 }
 
-/** What the audit row keeps of a rejected request: parsed JSON, the text, or the bytes. */
 export type RawRequest = { rawBody?: unknown; rawText?: string; rawBytes?: Uint8Array };
 
-/** Records a request-level rejection (encoding, invalid JSON, too deep, bad batch size) as one rejected event. */
 export async function rejectRequest(
   ctx: IngestContext,
   httpStatus: number,

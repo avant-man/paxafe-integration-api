@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 
-/** JSON.stringify with object keys sorted at every level, so equal content gives equal text. */
 export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;

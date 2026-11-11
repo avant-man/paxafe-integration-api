@@ -9,11 +9,6 @@ import { createApp } from '../../src/http/app.js';
 import { createLogger } from '../../src/logger.js';
 import { loadSamples, sample } from '../helpers/samples.js';
 
-/**
- * Runs against a real Postgres when DATABASE_URL (or TEST_DATABASE_URL) is set. Each run uses
- * its own throwaway schema, so it never touches data in the dev database.
- */
-// Response bodies are checked with toMatchObject/toEqual, so a loose type is fine here.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Json = any;
 
@@ -150,7 +145,6 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(res.status).toBe(422);
       const { body, ev } = await event(res);
       expect(body.errors).toEqual([{ code: 'CONTROL_CHARACTER', path, message: expect.any(String) }]);
-      // jsonb cannot hold \u0000, so the item is kept as JSON text.
       expect(ev).toMatchObject({ status: 'rejected', http_status: 422, raw_body: null });
       expect(JSON.parse(ev.raw_text)).toEqual(minimal('930000000000001', over));
     });
@@ -164,7 +158,6 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
     });
 
     it('422 INVALID_STRING for a lone surrogate', async () => {
-      // JSON.stringify writes a lone surrogate as the escape \ud800, which JSON.parse turns back into one.
       const res = await post(minimal('930000000000003', { DeviceName: 'A\ud800' }));
       expect(res.status).toBe(422);
       const { body, ev } = await event(res);
@@ -316,9 +309,7 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       const events = await (await get('/api/events?limit=200', scopedKey)).json() as Json;
       expect(events.events.length).toBe(2);
       expect((await get('/api/devices/555555555555555/readings', scopedKey)).status).toBe(200);
-      // Written by the seed key with AccountId 478, so it belongs to account 478.
       expect((await get('/api/devices/863257063350583/readings', scopedKey)).status).toBe(200);
-      // Clinical Supply Shipment is account 999: another tenant's device is not found.
       await post(withImei('Clinical Supply Shipment', '444444444444445'));
       expect((await get('/api/devices/444444444444445/readings', scopedKey)).status).toBe(404);
     });
@@ -378,7 +369,6 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
     });
 
     it('scoped reads return only readings of the key account', async () => {
-      // The admin key writes a reading with no account; then account 478 claims the device.
       expect((await post(reading('910000000000004', 1739215646000))).status).toBe(201);
       expect((await post(reading('910000000000004', 1739215647000), { key: scopedKey })).status).toBe(201);
       const scoped = await (await get('/api/devices/910000000000004/readings', scopedKey)).json() as Json;
@@ -423,7 +413,6 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
   describe('batch', () => {
     it('207 with one result per item in order and a status summary', async () => {
       const samples = loadSamples().map((s) => ({ ...s.payload }));
-      // Fresh IMEIs so earlier tests do not affect this one, except where sharing a key is the point.
       const remap: Record<string, string> = {
         '863257063350583': '700000000000001', '866088073468440': '700000000000002', '866088073468443': '700000000000003',
         '866088073468441': '700000000000004', '866088073468444': '700000000000005', '866088073468442': '700000000000006',
@@ -454,7 +443,6 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
   });
 
   describe('database failures stay inside one item', () => {
-    /** Makes the n-th audit insert fail, as a dropped connection would. */
     const failNthEventInsert = (n: number) => {
       const original = pool.query.bind(pool);
       let seen = 0;
@@ -494,7 +482,7 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(res.status).toBe(500);
       expect(await res.json() as Json).toMatchObject({ status: 'failed', errors: [{ code: 'INTERNAL_ERROR' }] });
       const { rows } = await pool.query("SELECT count(*)::int AS n FROM sensor_readings WHERE device_imei = '940000000000009'");
-      expect(rows[0].n).toBe(0); // rolled back with the location insert
+      expect(rows[0].n).toBe(0);
     });
 
     it('a single item gets the item shape with status failed, not a bare 500', async () => {

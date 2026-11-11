@@ -3,7 +3,6 @@ import { createPool } from '../db/pool.js';
 import { runRetention } from '../db/retention.js';
 import { createLogger } from '../logger.js';
 
-// Usage: npm run retention   (in the image: node dist/scripts/retention.js)
 loadDotEnv();
 const config = loadConfig();
 const logger = createLogger(config.logLevel);

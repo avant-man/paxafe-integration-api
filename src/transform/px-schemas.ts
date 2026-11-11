@@ -1,15 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { Ajv, type ValidateFunction } from 'ajv';
 
-// Resolves to <repo>/schemas from both src/transform (tsx) and dist/transform (node).
 const schemaDir = new URL('../../schemas/', import.meta.url);
 
 export function loadSchema(file: string): Record<string, unknown> {
   return JSON.parse(readFileSync(new URL(file, schemaDir), 'utf8')) as Record<string, unknown>;
 }
 
-// strict: false because the provided schemas use the non-standard "example" keyword and
-// format "int64"; format checks are off since the PX schemas carry no format we rely on.
+// Not strict: the schemas use "example" and format "int64".
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
 
 let sensorValidator: ValidateFunction | undefined;

@@ -102,7 +102,6 @@ describe('validate (hard rules)', () => {
 
   it('rejects a garbage AccountId with a scoped key, even after normalize turned it into null', () => {
     const scoped = { nowMs: NOW, keyAccountId: 478 };
-    // normalize() turns "abc" into null; validate gets the value the sender sent as the third argument.
     expect(validate(base({ AccountId: null }), scoped, 'abc').errors.map((e) => e.code)).toEqual(['ACCOUNT_MISMATCH']);
     expect(validate(base({ AccountId: null }), scoped, 1.5).errors.map((e) => e.code)).toEqual(['ACCOUNT_MISMATCH']);
     expect(validate(base({ AccountId: 478 }), scoped, '478').errors).toEqual([]);

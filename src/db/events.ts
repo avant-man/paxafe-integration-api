@@ -5,14 +5,12 @@ export const EVENT_STATUSES = ['processed', 'partial', 'duplicate', 'duplicate_c
 export type EventStatus = (typeof EVENT_STATUSES)[number];
 
 export interface NewEvent {
-  /** Made by the caller, so a result can name the event even when this insert fails. */
   id: string;
   apiKeyId: string | null;
   requestId: string;
   batchIndex: number | null;
   rawBody?: unknown;
   rawText?: string | null;
-  /** The body as bytes, when it is not text that Postgres can store (not UTF-8, or a NUL byte). */
   rawBytes?: Uint8Array | null;
   payloadHash?: string | null;
   deviceImei?: string | null;
@@ -29,14 +27,11 @@ export interface EventUpdate {
   deviceImei?: string | null;
 }
 
-/**
- * Writes the raw item first, before any processing, so every request is kept for audit and
- * replay. The row starts as `failed`/500: if the process dies mid-way the row is still honest.
- */
+// Row starts as failed/500, so a crash mid-way leaves it honest.
 export async function insertEvent(pool: Pool, e: NewEvent): Promise<void> {
   let rawText = e.rawText ?? null;
   let rawBytes = e.rawBytes ? Buffer.from(e.rawBytes) : null;
-  // Postgres text cannot hold a NUL byte, so that body is kept byte for byte instead.
+  // Postgres text cannot hold NUL, so keep those bodies as bytes.
   if (rawText?.includes('\u0000')) {
     rawBytes = Buffer.from(rawText, 'utf8');
     rawText = null;
@@ -48,9 +43,7 @@ export async function insertEvent(pool: Pool, e: NewEvent): Promise<void> {
   try {
     await pool.query(sql, [...params, rawJson, rawText, rawBytes]);
   } catch (err) {
-    // jsonb rejects some valid JSON: \u0000 and lone surrogates (SQLSTATE class 22, data
-    // exception) and very deep nesting (class 54, program limit). Keep the item as JSON text
-    // instead of losing the audit row. Any other error (database down) is thrown.
+    // jsonb rejects NUL, lone surrogates and deep nesting, so store text.
     const code = (err as { code?: string }).code ?? '';
     if (rawJson !== null && (code.startsWith('22') || code.startsWith('54'))) {
       await pool.query(sql, [...params, null, rawJson, null]);
@@ -60,7 +53,6 @@ export async function insertEvent(pool: Pool, e: NewEvent): Promise<void> {
   }
 }
 
-/** jsonb cannot hold NUL or a lone surrogate, and a message can quote payload text. Make it safe. */
 const storableText = (text: string): string => text.replaceAll('\u0000', '').toWellFormed();
 const storableIssues = (issues: Issue[]): string =>
   JSON.stringify(issues.map((i) => ({ ...i, path: storableText(i.path), message: storableText(i.message) })));
@@ -83,7 +75,6 @@ export async function finalizeEvent(db: Pool | PoolClient, id: string, u: EventU
 export interface EventFilter {
   limit: number;
   status: EventStatus | null;
-  /** Scoped keys only see their own events. */
   apiKeyId: string | null;
 }
 

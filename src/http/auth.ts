@@ -3,7 +3,6 @@ import { findApiKey, touchApiKey } from '../db/keys.js';
 import type { Pool } from '../db/pool.js';
 import type { AppEnv } from './env.js';
 
-/** Reads the key from X-API-Key, or from Authorization: Bearer <key>. */
 export function extractApiKey(headers: { get(name: string): string | null | undefined }): string | null {
   const direct = headers.get('x-api-key')?.trim();
   if (direct) return direct;

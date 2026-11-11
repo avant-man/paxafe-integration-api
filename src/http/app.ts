@@ -40,7 +40,7 @@ export function createApp({ pool, logger, config, now = Date.now }: AppDeps): Ho
     }
   });
 
-  // The per-IP limit runs before auth, so requests with bad keys cannot flood the key lookup.
+  // Per-IP limit runs before auth, so bad keys cannot flood key lookups.
   app.use(
     '/api/*',
     rateLimit(ipLimiter, 'ip', (c) => clientIp(c.req.header('x-forwarded-for'), c.env?.incoming?.socket.remoteAddress)),

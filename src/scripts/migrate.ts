@@ -6,7 +6,6 @@ import { createLogger } from '../logger.js';
 loadDotEnv();
 const config = loadConfig();
 const logger = createLogger(config.logLevel);
-// Migrations use the direct (unpooled) URL when one is given.
 const pool = createPool(config.databaseUrlDirect ?? config.databaseUrl, { max: 1 });
 try {
   const applied = await runMigrations(pool, logger);

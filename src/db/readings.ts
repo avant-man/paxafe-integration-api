@@ -11,9 +11,7 @@ export interface StoreResult {
   status: StoreStatus;
   sensorId: number | null;
   locationId: number | null;
-  /** Ids of the first-written rows when this item is a repeat. */
   duplicateOf: { sensorReadingId: number; locationReadingId: number | null; eventId: string } | null;
-  /** Transform warnings plus any added while storing. */
   warnings: Issue[];
 }
 
@@ -24,7 +22,6 @@ export const HTTP_BY_STATUS: Record<StoreStatus, number> = {
   duplicate_conflict: 200,
 };
 
-/** The device belongs to another account. The item is rejected with DEVICE_ACCOUNT_CONFLICT (422). */
 export class DeviceAccountConflict extends Error {
   constructor(readonly deviceImei: string) {
     super(`Device ${deviceImei} belongs to another account`);
@@ -32,20 +29,10 @@ export class DeviceAccountConflict extends Error {
   }
 }
 
-/**
- * Stores one accepted reading and finalizes its event in a single transaction.
- * Idempotency key is (device_imei, timestamp_ms); the first write wins for the whole reading.
- * A repeat is `duplicate` when its normalized hash matches, else `duplicate_conflict`.
- * INSERT ... ON CONFLICT DO NOTHING makes this safe under concurrent retries.
- * Throws DeviceAccountConflict, which rolls the transaction back, when the device has another owner.
- */
 export async function storeReading(client: PoolClient, eventId: string, o: Accepted): Promise<StoreResult> {
   const r = o.reading;
   const recordedAt = new Date(r.timestampMs).toISOString();
 
-  // One upsert for the device row. account_id is set once, by the first write that carries an
-  // account, and a payload never changes it after that. device_id follows the newest reading.
-  // The upsert locks the row, so two tenants racing for a new device cannot both win.
   const device = await client.query<{ account_id: number | null }>(
     `INSERT INTO devices (device_imei, device_id, account_id, provider, type, last_reading_at)
      VALUES ($1, $2, $3, 'Tive', 'Active', $4)
@@ -60,7 +47,6 @@ export async function storeReading(client: PoolClient, eventId: string, o: Accep
   );
   const deviceAccountId = device.rows[0]!.account_id;
   if (r.accountId !== null && r.accountId !== deviceAccountId) throw new DeviceAccountConflict(r.deviceImei);
-  // A reading without an account (unscoped key, no AccountId) takes the device's account.
   const accountId = deviceAccountId;
 
   const sensor = o.sensor;
@@ -102,8 +88,7 @@ export async function storeReading(client: PoolClient, eventId: string, o: Accep
         accountId, r.shipmentId, r.publicShipmentId, o.payloadHash, JSON.stringify(loc),
       ],
     );
-    // A plain INSERT: the sensor row above is the idempotency gate, so a location row for this
-    // key cannot exist yet. If one does (a manual data repair), the unique key fails the item loudly.
+    // No ON CONFLICT: the sensor insert above is the idempotency gate.
     locationId = insertedLoc.rows[0]!.id;
   }
 
@@ -156,7 +141,6 @@ export interface DeviceReadings {
   location: unknown[];
 }
 
-/** Latest readings for a device. A scoped key (accountId set) sees only its own device and readings. */
 export async function getDeviceReadings(
   pool: Pool,
   imei: string,

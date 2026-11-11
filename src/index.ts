@@ -13,7 +13,6 @@ async function main(): Promise<void> {
   const pool = createPool(config.databaseUrl);
   pool.on('error', (err) => logger.error({ err }, 'idle database client error'));
 
-  // DDL belongs on a real session, so migrations use the direct URL when one is given.
   const migrationPool = config.databaseUrlDirect ? createPool(config.databaseUrlDirect, { max: 1 }) : pool;
   try {
     await runMigrations(migrationPool, logger);

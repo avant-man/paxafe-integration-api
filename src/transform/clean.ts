@@ -1,12 +1,10 @@
 import { isPlainObject } from './normalize.js';
 import type { CleanLocation, CleanReading, Issue, JsonObject } from './types.js';
 
-/** Raw values Tive devices send when a sensor is absent or broken. */
 export const SENSOR_SENTINELS: readonly number[] = [327.67, -327.68, 32767, -32768, -3276.8, 3276.7];
 export const TEMP_MIN_C = -100;
 export const TEMP_MAX_C = 100;
 const INT32_MAX = 2_147_483_647;
-/** Column capacity guards: numeric(10,1) for lux and numeric(7,3) for accelerometer values. */
 const LUX_MAX = 999_999_999;
 const ACCEL_ABS_MAX = 9_999;
 
@@ -36,7 +34,6 @@ class Collector {
   }
 }
 
-/** Sentinel and range checks for one temperature value. `unit` sets the range check. */
 function checkTemperature(value: number | null, path: string, unit: 'C' | 'F', c: Collector): number | null {
   if (value === null) return null;
   if (isSentinel(value)) {
@@ -50,11 +47,7 @@ function checkTemperature(value: number | null, path: string, unit: 'C' | 'F', c
   return value;
 }
 
-/**
- * Celsius for a Temperature-like object. Derives it from a valid Fahrenheit only when Celsius is
- * missing (absent, null, or not a number). A Celsius that was sent but failed a check (sentinel,
- * out of range) means the sensor is bad, so its Fahrenheit twin is not trusted either.
- */
+// A rejected Celsius means a bad sensor, so Fahrenheit is not trusted.
 function cleanTemperature(obj: unknown, base: string, c: Collector): number | null {
   const sentCelsius = num(obj, 'Celsius');
   const celsius = checkTemperature(sentCelsius, `${base}.Celsius`, 'C', c);
@@ -79,7 +72,6 @@ function inRange(value: number | null, min: number, max: number, path: string, c
   return value;
 }
 
-/** Accuracy in whole meters: Meters, else Kilometers, else Miles. An out-of-range unit falls through to the next. */
 function accuracyMeters(accuracy: unknown, c: Collector): number | null {
   const units: [key: string, metersPerUnit: number][] = [['Meters', 1], ['Kilometers', 1000], ['Miles', 1609.344]];
   for (const [key, metersPerUnit] of units) {
@@ -123,10 +115,6 @@ function cleanLocation(p: JsonObject, c: Collector): CleanLocation | null {
   };
 }
 
-/**
- * Soft rules on a normalized payload that passed validation. Bad fields become null with a
- * coded warning; the record survives. An invalid location drops only the location record.
- */
 export function clean(p: JsonObject, timestampMs: number): { reading: CleanReading; warnings: Issue[] } {
   const c = new Collector();
   const temperatureC = cleanTemperature(p.Temperature, 'Temperature', c);
@@ -143,7 +131,6 @@ export function clean(p: JsonObject, timestampMs: number): { reading: CleanReadi
     accelerometer = Object.values(values).every((v) => v === null) ? null : values;
   }
 
-  // Location runs after the sensor fields so warnings read in payload order.
   const location = cleanLocation(p, c);
   const shipment = p.Shipment;
   const accountId = typeof p.AccountId === 'number' && Number.isSafeInteger(p.AccountId) ? p.AccountId : null;

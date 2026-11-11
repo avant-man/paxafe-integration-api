@@ -1,18 +1,11 @@
 import type { Pool } from './pool.js';
 
 export interface RetentionOptions {
-  /** Delete duplicate, duplicate_conflict and rejected events older than this. */
   eventDays: number;
-  /** Clear the raw body of processed and partial events older than this. */
   rawDays: number;
-  /** Rows per statement, so each statement holds its locks only briefly. */
   batchSize: number;
 }
 
-/**
- * Keeps webhook_events from growing without end. Events that created readings stay (the
- * readings point at them), and so do `failed` events, which are the replay queue.
- */
 export async function runRetention(pool: Pool, o: RetentionOptions): Promise<{ eventsDeleted: number; rawBodiesCleared: number }> {
   const eventsDeleted = await inBatches(pool, o.batchSize, `
     DELETE FROM webhook_events WHERE id IN (
@@ -28,7 +21,6 @@ export async function runRetention(pool: Pool, o: RetentionOptions): Promise<{ e
   return { eventsDeleted, rawBodiesCleared };
 }
 
-/** Runs `sql` (params: days, batch size) until a batch touches fewer rows than the batch size. */
 async function inBatches(pool: Pool, batchSize: number, sql: string, days: number): Promise<number> {
   let total = 0;
   for (;;) {

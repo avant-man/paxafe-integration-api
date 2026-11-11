@@ -33,9 +33,7 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
     bodyLimit({
       maxSize: config.bodyLimitBytes,
       onError: async (c) => {
-        // Read and drop the rest of the body first. A 413 sent while the client is still
-        // sending leaves the socket in a bad state, and the client's next request on that
-        // keep-alive connection failed with "other side closed". Above the caps, close instead.
+        // Drain first: an early 413 broke the next keep-alive request.
         if (!(await discardBody(c.req.raw.body, MAX_DISCARD_BYTES, MAX_DISCARD_MS))) c.header('Connection', 'close');
         return c.json({ error: 'payload_too_large', message: `Body must be at most ${config.bodyLimitBytes} bytes` }, 413);
       },
@@ -50,7 +48,7 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
         return c.json(r.body, status);
       };
 
-      // Compressed bodies are not decoded: that would need a second size limit (gzip bombs).
+      // Compressed bodies are not decoded, to avoid gzip bombs.
       const encoding = c.req.header('content-encoding')?.trim().toLowerCase();
       if (encoding && encoding !== 'identity') {
         return reject(415, 'UNSUPPORTED_ENCODING', `Content-Encoding "${encoding}" is not supported; send uncompressed JSON`, { rawBytes: bytes });
@@ -66,7 +64,6 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
       } catch (err) {
         return reject(400, 'INVALID_JSON', `Body is not valid JSON: ${(err as Error).message}`, { rawText: text });
       }
-      // Checked before anything stores or walks the value.
       if (nestedDeeperThan(parsed, config.maxJsonDepth)) {
         return reject(400, 'PAYLOAD_TOO_DEEP', `Objects and arrays may nest at most ${config.maxJsonDepth} levels deep`, { rawText: text });
       }
@@ -75,7 +72,7 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
         if (parsed.length === 0 || parsed.length > config.maxBatchSize) {
           return reject(400, 'BATCH_SIZE_INVALID', `An array body must hold 1 to ${config.maxBatchSize} items, got ${parsed.length}`, { rawBody: parsed });
         }
-        // Sequential on purpose: repeats inside one batch resolve in order (first write wins).
+        // Sequential on purpose: repeats in one batch resolve in order.
         const results = [];
         for (const [index, item] of parsed.entries()) {
           results.push((await ingestItem(ctx, item, index)).body);

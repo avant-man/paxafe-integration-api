@@ -5,7 +5,6 @@ import type { AppEnv } from './env.js';
 
 const SAFE_REQUEST_ID = /^[\w.:-]{1,128}$/;
 
-/** Sets the request id (X-Request-Id, generated when absent or unsafe) and logs one line per request. */
 export function requestContext(logger: Logger): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const incoming = c.req.header('x-request-id');

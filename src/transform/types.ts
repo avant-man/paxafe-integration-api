@@ -1,4 +1,3 @@
-/** A coded problem found in a payload. `path` uses dot notation on the Tive payload. */
 export interface Issue {
   code: string;
   path: string;
@@ -60,7 +59,6 @@ export interface PxLocation {
   wifi_access_points: number | null;
 }
 
-/** Values that survived the soft rules, before PX mapping and rounding. */
 export interface CleanReading {
   deviceImei: string;
   deviceName: string;
@@ -87,7 +85,6 @@ export interface CleanLocation {
   cellularDbm: number | null;
 }
 
-/** Outcome of the pure pipeline for one item (no database involved). */
 export type TransformOutcome =
   | {
       ok: false;

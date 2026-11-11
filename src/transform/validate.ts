@@ -2,36 +2,27 @@ import { isPlainObject } from './normalize.js';
 import type { Issue, JsonObject } from './types.js';
 
 export const IMEI_PATTERN = /^[0-9]{15}$/;
-/** Epoch values below this are treated as seconds (1e11 ms is 1973; 1e11 s is year 5138). */
+// 1e11 ms is 1973 and 1e11 s is year 5138.
 export const SECONDS_THRESHOLD = 1e11;
 export const MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
 const UTC_TOLERANCE_MS = 1000;
-/** ISO 8601 date-time with Z or an offset. Without one, Date.parse reads local time, which is not UTC. */
+// Needs Z or an offset, since Date.parse reads local time otherwise.
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})$/i;
 
 export interface ValidateOptions {
-  /** Current time in epoch ms. Injected so the rules stay pure and testable. */
   nowMs: number;
-  /** account_id of the API key. When set, it is the reading's account and a different payload AccountId is rejected. */
   keyAccountId: number | null;
 }
 
 export interface ValidationResult {
   errors: Issue[];
   warnings: Issue[];
-  /** Final epoch in ms, or null when the timestamp is invalid. */
   timestampMs: number | null;
 }
 
-/** Payload text that ends up in a column or a PX document. Other fields live only in the audit copy. */
 const STORED_TEXT_PATHS = ['DeviceId', 'DeviceName', 'ShipmentId', 'PublicShipmentId', 'Shipment.Id', 'Location.FormattedAddress'];
 
-/**
- * Postgres text and jsonb cannot hold the NUL character or a lone UTF-16 surrogate, so such a
- * string in a stored field failed the insert with 500 on every retry. Returns it as a hard error.
- * The same text in an unknown field does not reject the reading: the audit copy falls back to
- * raw_text, and stored messages are cleaned (src/db/events.ts).
- */
+// Postgres cannot store NUL or lone surrogates in these fields.
 export function findBadText(payload: JsonObject): Issue | null {
   for (const path of STORED_TEXT_PATHS) {
     let value: unknown = payload;
@@ -52,7 +43,6 @@ function badText(text: string, path: string): Issue | null {
   return null;
 }
 
-/** Hard rules. Any error means the item is rejected (HTTP 422). */
 export function validate(payload: JsonObject, options: ValidateOptions, sentAccountId: unknown = payload.AccountId): ValidationResult {
   const errors: Issue[] = [];
   const warnings: Issue[] = [];
@@ -120,9 +110,7 @@ export function validate(payload: JsonObject, options: ValidateOptions, sentAcco
     errors.push({ code: 'LOCATION_MISSING', path: 'Location', message: 'Location must be an object' });
   }
 
-  // A scoped key owns the account. The payload may leave AccountId out or repeat the key's
-  // account, nothing else. `sentAccountId` is the value before normalize, so "abc" (which
-  // normalize turns into null) is a mismatch and not a way around this rule.
+  // Uses the value before normalize, so "abc" counts as a mismatch.
   const sent = sentAccountId !== undefined && sentAccountId !== null;
   if (options.keyAccountId !== null && sent && payload.AccountId !== options.keyAccountId) {
     errors.push({
