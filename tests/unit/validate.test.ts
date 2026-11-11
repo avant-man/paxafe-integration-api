@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findBadString, validate, type ValidateOptions } from '../../src/transform/validate.js';
+import { findBadText, validate, type ValidateOptions } from '../../src/transform/validate.js';
 import type { JsonObject } from '../../src/transform/types.js';
 
 const NOW = Date.parse('2026-01-01T00:00:00Z');
@@ -114,11 +114,15 @@ describe('validate (hard rules)', () => {
   });
 });
 
-describe('findBadString (text Postgres cannot store)', () => {
-  it('finds NUL and lone surrogates in values and keys, with the path', () => {
-    expect(findBadString({ a: 'ok', b: { c: 'x\u0000' } })).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'b.c' });
-    expect(findBadString({ list: ['ok', 'y\udc00'] })).toMatchObject({ code: 'INVALID_STRING', path: 'list.1' });
-    expect(findBadString({ a: { 'k\u0000': 1 } })).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'a' });
-    expect(findBadString({ emoji: '😀', text: 'plain' })).toBeNull();
+describe('findBadText (text Postgres cannot store, in the fields we store)', () => {
+  it('finds NUL and lone surrogates in stored text fields, with the path', () => {
+    expect(findBadText({ DeviceName: 'x\u0000' })).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'DeviceName' });
+    expect(findBadText({ Shipment: { Id: 'y\udc00' } })).toMatchObject({ code: 'INVALID_STRING', path: 'Shipment.Id' });
+    expect(findBadText({ Location: { FormattedAddress: 'a\u0000' } })).toMatchObject({ path: 'Location.FormattedAddress' });
+    expect(findBadText({ DeviceName: '😀 plain' })).toBeNull();
+  });
+
+  it('ignores fields that are never stored outside the audit copy', () => {
+    expect(findBadText({ EntityName: 'x\u0000', Extra: { 'k\u0000': 'v\ud800' } })).toBeNull();
   });
 });

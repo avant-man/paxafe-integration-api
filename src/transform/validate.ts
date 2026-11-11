@@ -23,16 +23,20 @@ export interface ValidationResult {
   timestampMs: number | null;
 }
 
+/** Payload text that ends up in a column or a PX document. Other fields live only in the audit copy. */
+const STORED_TEXT_PATHS = ['DeviceId', 'DeviceName', 'ShipmentId', 'PublicShipmentId', 'Shipment.Id', 'Location.FormattedAddress'];
+
 /**
  * Postgres text and jsonb cannot hold the NUL character or a lone UTF-16 surrogate, so such a
- * string failed the insert with 500 on every retry. Returns the first one found, in a value or a
- * key, as a hard error. For a bad key the path is the parent object, so the key is never echoed.
+ * string in a stored field failed the insert with 500 on every retry. Returns it as a hard error.
+ * The same text in an unknown field does not reject the reading: the audit copy falls back to
+ * raw_text, and stored messages are cleaned (src/db/events.ts).
  */
-export function findBadString(value: unknown, path = ''): Issue | null {
-  if (typeof value === 'string') return badText(value, path);
-  if (typeof value !== 'object' || value === null) return null;
-  for (const [key, child] of Object.entries(value)) {
-    const issue = badText(key, path) ?? findBadString(child, path === '' ? key : `${path}.${key}`);
+export function findBadText(payload: JsonObject): Issue | null {
+  for (const path of STORED_TEXT_PATHS) {
+    let value: unknown = payload;
+    for (const key of path.split('.')) value = isPlainObject(value) ? value[key] : undefined;
+    const issue = typeof value === 'string' ? badText(value, path) : null;
     if (issue) return issue;
   }
   return null;

@@ -4,7 +4,7 @@ import { toPxLocation, toPxSensor } from './map.js';
 import { isPlainObject, normalize } from './normalize.js';
 import { validatePxLocation, validatePxSensor } from './px-schemas.js';
 import type { TransformOutcome } from './types.js';
-import { findBadString, IMEI_PATTERN, validate, type ValidateOptions } from './validate.js';
+import { findBadText, IMEI_PATTERN, validate, type ValidateOptions } from './validate.js';
 
 /** Thrown when our own output breaks a PX schema. This is a bug, so the item fails with 500. */
 export class OutputSchemaViolation extends Error {
@@ -31,7 +31,7 @@ export function transformPayload(item: unknown, options: ValidateOptions): Trans
   }
 
   // First, so no later rule copies the bad text into a warning that must be stored as jsonb.
-  const badString = findBadString(item);
+  const badString = findBadText(item);
   if (badString) {
     const deviceImei = typeof item.DeviceId === 'string' && IMEI_PATTERN.test(item.DeviceId) ? item.DeviceId : null;
     return { ok: false, errors: [badString], warnings: [], normalized: null, payloadHash: null, deviceImei };

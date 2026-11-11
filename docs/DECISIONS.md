@@ -90,9 +90,12 @@ change it. No item changes the response fields that the spec defines.
   - Invalid JSON → 400 `INVALID_JSON`, as before.
   - Objects and arrays nested more than 64 levels → 400 `PAYLOAD_TOO_DEEP`. A Tive payload needs
     4. Deep input broke the jsonb insert and the transform (stack depth).
-  - A string or key with NUL (`\u0000`) → 422 `CONTROL_CHARACTER`. A lone UTF-16 surrogate → 422
-    `INVALID_STRING`. Postgres text and jsonb cannot store either, so the insert failed with 500
-    on every retry. The rule runs before every other rule, so no warning quotes the bad text.
+  - NUL (`\u0000`) in a text field we store (`DeviceId`, `DeviceName`, `ShipmentId`,
+    `PublicShipmentId`, `Shipment.Id`, `Location.FormattedAddress`) → 422 `CONTROL_CHARACTER`. A
+    lone UTF-16 surrogate there → 422 `INVALID_STRING`. Postgres text and jsonb cannot store
+    either, so the insert failed with 500 on every retry. The same text in an unknown or unmapped
+    field does not reject the reading: a valid temperature must not be lost over a field we
+    ignore. That field lives only in the audit copy, which falls back to `raw_text`.
 - **(beyond spec) Where the raw body is kept.** `raw_body` (jsonb) holds parsed JSON. When jsonb
   rejects it (NUL, lone surrogate, SQLSTATE class 22 or 54), the same JSON goes to `raw_text`.
   Text that is not valid JSON goes to `raw_text`. Bytes that Postgres text cannot hold (not
@@ -169,10 +172,11 @@ change it. No item changes the response fields that the spec defines.
 - **Body limit is 1 MB, enforced while the body streams.** A missing or false `Content-Length`
   does not get around it.
 - **A 413 keeps the keep-alive connection usable.** Before it answers, the API reads and drops
-  the rest of the body, up to 8 MB. Before this, the 413 went out while the client was still
+  the rest of the body, up to 8 MB and for at most 1 second. Before this, the 413 went out while the client was still
   sending, and the client's next request on that connection failed with "other side closed"
-  (about 1 request in 10 with `fetch`). A larger body, or a chunked body that the limit
-  middleware is still reading, gets `Connection: close` instead. 401 and 415 did not show the
+  (about 1 request in 10 with `fetch`). A larger or slower body (for example a `Content-Length`
+  larger than what is sent), or a chunked body that the limit middleware is still reading, gets
+  `Connection: close` instead. 401 and 415 did not show the
   problem in the same test (100 rounds each), because the Node adapter drains those bodies.
 
 ## Database

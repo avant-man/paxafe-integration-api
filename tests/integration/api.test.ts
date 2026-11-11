@@ -155,10 +155,12 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(JSON.parse(ev.raw_text)).toEqual(minimal('930000000000001', over));
     });
 
-    it('422 CONTROL_CHARACTER for \\u0000 in an object key', async () => {
-      const res = await post(minimal('930000000000002', { Extra: { 'bad\u0000key': 1 } }));
-      expect(res.status).toBe(422);
-      expect((await res.json() as Json).errors[0]).toMatchObject({ code: 'CONTROL_CHARACTER', path: 'Extra' });
+    it('stores the reading when only an unknown field has \\u0000; the audit copy is kept as text', async () => {
+      const res = await post(minimal('930000000000002', { Extra: { 'bad\u0000key': 'v\u0000', other: 'w\ud800' } }));
+      expect(res.status).toBe(201);
+      const { ev } = await event(res);
+      expect(ev).toMatchObject({ status: 'processed', raw_body: null });
+      expect(JSON.parse(ev.raw_text).Extra).toEqual({ 'bad\u0000key': 'v\u0000', other: 'w\ud800' });
     });
 
     it('422 INVALID_STRING for a lone surrogate', async () => {

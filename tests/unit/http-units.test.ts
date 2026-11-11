@@ -81,14 +81,21 @@ describe('discardBody', () => {
   });
 
   it('reads a body to its end under the cap, and stops above it', async () => {
-    expect(await discardBody(stream([10, 10]), 100)).toBe(true);
-    expect(await discardBody(stream([60, 60]), 100)).toBe(false);
-    expect(await discardBody(null, 100)).toBe(true);
+    expect(await discardBody(stream([10, 10]), 100, 1000)).toBe(true);
+    expect(await discardBody(stream([60, 60]), 100, 1000)).toBe(false);
+    expect(await discardBody(null, 100, 1000)).toBe(true);
+  });
+
+  it('gives up after the time limit when the body never ends (Content-Length larger than sent)', async () => {
+    const stalled = new ReadableStream<Uint8Array>({ start: (controller) => controller.enqueue(new Uint8Array(1)) });
+    const started = Date.now();
+    expect(await discardBody(stalled, 100, 50)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it('returns false when another reader holds the stream', async () => {
     const s = stream([1]);
     s.getReader();
-    expect(await discardBody(s, 100)).toBe(false);
+    expect(await discardBody(s, 100, 1000)).toBe(false);
   });
 });
