@@ -113,7 +113,7 @@ export async function storeReading(client: PoolClient, eventId: string, o: Accep
   const status: StoreStatus = locationId !== null ? 'processed' : 'partial';
   await finalizeEvent(client, eventId, {
     status, httpStatus: HTTP_BY_STATUS[status], errors: [], warnings,
-    sensorReadingId: sensorId, locationReadingId: locationId,
+    sensorReadingId: sensorId, locationReadingId: locationId, payloadHash: o.payloadHash, deviceImei: r.deviceImei,
   });
   return { status, sensorId, locationId, duplicateOf: null, warnings };
 }
@@ -142,7 +142,7 @@ async function resolveDuplicate(client: PoolClient, eventId: string, o: Accepted
   }
   await finalizeEvent(client, eventId, {
     status, httpStatus: HTTP_BY_STATUS[status], errors: [], warnings,
-    sensorReadingId: first.id, locationReadingId,
+    sensorReadingId: first.id, locationReadingId, payloadHash: o.payloadHash, deviceImei: o.reading.deviceImei,
   });
   return {
     status,

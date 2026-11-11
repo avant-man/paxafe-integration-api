@@ -246,6 +246,7 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
 
       const ev = await (await get(`/api/events/${body.event_id}`)).json() as Json;
       expect(ev).toMatchObject({ status: 'processed', http_status: 201, sensor_reading_id: body.sensor.id, location_reading_id: body.location.id });
+      expect(ev).toMatchObject({ device_imei: '863257063350583', payload_hash: expect.stringMatching(/^[0-9a-f]{64}$/) });
       expect(ev.raw_body).toEqual(sample('Standard Temperature Shipment'));
     });
 
@@ -347,7 +348,8 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(own.sensor).toHaveLength(1);
       expect((await get('/api/devices/910000000000001/readings', scopedKey)).status).toBe(404);
       const ev = await (await get(`/api/events/${body.event_id}`, scopedKey)).json() as Json;
-      expect(ev).toMatchObject({ status: 'rejected', http_status: 422 });
+      expect(ev).toMatchObject({ status: 'rejected', http_status: 422, device_imei: '910000000000001' });
+      expect(ev.payload_hash).toMatch(/^[0-9a-f]{64}$/);
     });
 
     it('the payload never moves a device to another account, even with the unscoped key', async () => {
@@ -446,6 +448,51 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       expect(body.results.map((r: { status: string }) => r.status)).toEqual(['processed', 'rejected']);
       const ev = await (await get(`/api/events/${body.results[1].event_id}`)).json() as Json;
       expect(ev).toMatchObject({ batch_index: 1, raw_body: 42, errors: [{ code: 'PAYLOAD_NOT_OBJECT' }] });
+    });
+  });
+
+  describe('database failures stay inside one item', () => {
+    /** Makes the n-th audit insert fail, as a dropped connection would. */
+    const failNthEventInsert = (n: number) => {
+      const original = pool.query.bind(pool);
+      let seen = 0;
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (pool as any).query = (...args: any[]) => {
+        if (typeof args[0] === 'string' && args[0].includes('INSERT INTO webhook_events') && (seen += 1) === n) {
+          return Promise.reject(new Error('simulated connection reset'));
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return (original as any)(...args);
+      };
+      return () => { pool.query = original; };
+    };
+
+    it('207 lists every batch item when one item hits a database error', async () => {
+      const restore = failNthEventInsert(2);
+      let res: Response;
+      try {
+        res = await post([withImei('Minimal Data Payload', '940000000000001'), withImei('Minimal Data Payload', '940000000000002'),
+          withImei('Minimal Data Payload', '940000000000003')]);
+      } finally {
+        restore();
+      }
+      expect(res.status).toBe(207);
+      const body = await res.json() as Json;
+      expect(body.results.map((r: { status: string }) => r.status)).toEqual(['processed', 'failed', 'processed']);
+      expect(body.results[1]).toMatchObject({ event_id: expect.any(String), errors: [{ code: 'INTERNAL_ERROR' }] });
+      expect(body.summary).toMatchObject({ processed: 2, failed: 1 });
+    });
+
+    it('a single item gets the item shape with status failed, not a bare 500', async () => {
+      const restore = failNthEventInsert(1);
+      let res: Response;
+      try {
+        res = await post(withImei('Minimal Data Payload', '940000000000004'));
+      } finally {
+        restore();
+      }
+      expect(res.status).toBe(500);
+      expect(await res.json() as Json).toMatchObject({ status: 'failed', event_id: expect.any(String), errors: [{ code: 'INTERNAL_ERROR' }] });
     });
   });
 

@@ -21,9 +21,18 @@ change it. No item changes the response fields that the spec defines.
 - **The audit row is written first, with status `failed`/500, then updated.** If the process
   dies mid-item, the row is still correct, and the raw body is still kept for replay.
 - **The status update and the reading inserts share one transaction.** Event status and stored
-  rows can never disagree.
+  rows can never disagree. The final `UPDATE webhook_events` also sets `payload_hash` and
+  `device_imei`, so each stored item costs one event update, not two.
+- **`processed_at IS NULL` marks a row whose process died mid-item.** Such a row keeps
+  `failed`/500 and its raw body, so it can be found and replayed.
+- **The event id (UUID) is made in the app, before the audit insert.** If that insert fails (for
+  example a dropped connection), the item still gets a result with an `event_id`, status
+  `failed` and `INTERNAL_ERROR` ("could not be recorded; send it again"). That id has no row,
+  but it is in the error log line. Before this, the error escaped and a batch lost the results
+  of every item, including the ones already committed.
 - **Batch items run one after another, each in its own transaction.** A repeat inside one batch
-  resolves in order (first write wins), and one bad item does not roll back the others.
+  resolves in order (first write wins), and one bad item does not roll back the others. A
+  database error in one item gives that item `failed`; the 207 still lists every item.
 - **(beyond spec) `NUMERIC_STRING_COERCED` warning.** The spec coerces `"10.5"` silently. A
   warning keeps a record that the sender sent strings, and the status stays `processed`.
 - **(beyond spec) `NOT_A_NUMBER` warning code.** The spec says "missing + warning" for a

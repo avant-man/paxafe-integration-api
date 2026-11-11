@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { finalizeEvent, insertEvent, type EventStatus } from './db/events.js';
 import type { ApiKeyRecord } from './db/keys.js';
 import { withTransaction, type Pool } from './db/pool.js';
-import { DeviceAccountConflict, HTTP_BY_STATUS, storeReading } from './db/readings.js';
+import { DeviceAccountConflict, HTTP_BY_STATUS, storeReading, type StoreResult } from './db/readings.js';
 import type { Logger } from './logger.js';
 import { OutputSchemaViolation, transformPayload } from './transform/pipeline.js';
 import type { Issue, PxLocation, PxSensor } from './transform/types.js';
@@ -45,30 +46,37 @@ function body(ctx: IngestContext, eventId: string, status: EventStatus, extra: P
   };
 }
 
-/** Runs one parsed item through audit insert -> transform -> store. Never throws for item-level problems. */
+/**
+ * Runs one parsed item through audit insert -> transform -> store. Never throws: any failure,
+ * even of the audit insert, becomes a `failed` result for this item only, so a batch still
+ * lists every item. The event id is made here, so even that result carries one for the logs.
+ */
 export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: number | null): Promise<ItemResult> {
-  const eventId = await insertEvent(ctx.pool, { apiKeyId: ctx.apiKey.id, requestId: ctx.requestId, batchIndex, rawBody: item });
+  const eventId = randomUUID();
   const log = ctx.log.child({ event_id: eventId, batch_index: batchIndex });
+  let recorded = false;
+
+  const reject = async (errors: Issue[], warnings: Issue[], payloadHash: string | null, deviceImei: string | null): Promise<ItemResult> => {
+    await finalizeEvent(ctx.pool, eventId, { status: 'rejected', httpStatus: 422, errors, warnings, payloadHash, deviceImei });
+    log.info({ status: 'rejected', error_codes: errors.map((e) => e.code), device_imei: deviceImei }, 'item rejected');
+    return { httpStatus: 422, body: body(ctx, eventId, 'rejected', { errors, warnings }) };
+  };
 
   try {
+    await insertEvent(ctx.pool, { id: eventId, apiKeyId: ctx.apiKey.id, requestId: ctx.requestId, batchIndex, rawBody: item });
+    recorded = true;
+
     const outcome = transformPayload(item, { nowMs: ctx.nowMs, keyAccountId: ctx.apiKey.accountId });
+    if (!outcome.ok) return await reject(outcome.errors, outcome.warnings, outcome.payloadHash, outcome.deviceImei);
 
-    if (!outcome.ok) {
-      await finalizeEvent(ctx.pool, eventId, {
-        status: 'rejected', httpStatus: 422, errors: outcome.errors, warnings: outcome.warnings,
-        payloadHash: outcome.payloadHash, deviceImei: outcome.deviceImei,
-      });
-      log.info({ status: 'rejected', error_codes: outcome.errors.map((e) => e.code), device_imei: outcome.deviceImei }, 'item rejected');
-      return { httpStatus: 422, body: body(ctx, eventId, 'rejected', { errors: outcome.errors, warnings: outcome.warnings }) };
+    let stored: StoreResult;
+    try {
+      stored = await withTransaction(ctx.pool, (client) => storeReading(client, eventId, outcome));
+    } catch (err) {
+      if (!(err instanceof DeviceAccountConflict)) throw err;
+      const error: Issue = { code: 'DEVICE_ACCOUNT_CONFLICT', path: 'DeviceId', message: `${err.message}; nothing was stored` };
+      return await reject([error], [], outcome.payloadHash, outcome.deviceImei);
     }
-
-    const stored = await withTransaction(ctx.pool, async (client) => {
-      // The hash and IMEI are known now; set them in the same transaction as the readings.
-      await client.query('UPDATE webhook_events SET payload_hash = $2, device_imei = $3 WHERE id = $1', [
-        eventId, outcome.payloadHash, outcome.deviceImei,
-      ]);
-      return storeReading(client, eventId, outcome);
-    });
 
     log.info({
       status: stored.status,
@@ -95,18 +103,16 @@ export async function ingestItem(ctx: IngestContext, item: unknown, batchIndex: 
       }),
     };
   } catch (err) {
-    if (err instanceof DeviceAccountConflict) {
-      const error: Issue = { code: 'DEVICE_ACCOUNT_CONFLICT', path: 'DeviceId', message: `${err.message}; nothing was stored` };
-      await finalizeEvent(ctx.pool, eventId, { status: 'rejected', httpStatus: 422, errors: [error], warnings: [], deviceImei: err.deviceImei });
-      log.warn({ status: 'rejected', error_codes: [error.code], device_imei: err.deviceImei }, 'item rejected: device owned by another account');
-      return { httpStatus: 422, body: body(ctx, eventId, 'rejected', { errors: [error] }) };
-    }
     const error: Issue = err instanceof OutputSchemaViolation
       ? { code: 'OUTPUT_SCHEMA_VIOLATION', path: '', message: err.message }
-      : { code: 'INTERNAL_ERROR', path: '', message: 'Unexpected error while processing; the raw payload is kept for replay' };
-    log.error({ err }, 'item failed');
-    await finalizeEvent(ctx.pool, eventId, { status: 'failed', httpStatus: 500, errors: [error], warnings: [] })
-      .catch((e: unknown) => log.error({ err: e }, 'could not mark event failed'));
+      : recorded
+        ? { code: 'INTERNAL_ERROR', path: '', message: 'Unexpected error while processing; the raw payload is kept for replay' }
+        : { code: 'INTERNAL_ERROR', path: '', message: 'The item could not be recorded; send it again' };
+    log.error({ err, recorded }, 'item failed');
+    if (recorded) {
+      await finalizeEvent(ctx.pool, eventId, { status: 'failed', httpStatus: 500, errors: [error], warnings: [] })
+        .catch((e: unknown) => log.error({ err: e }, 'could not mark event failed'));
+    }
     return { httpStatus: 500, body: body(ctx, eventId, 'failed', { errors: [error] }) };
   }
 }
@@ -121,7 +127,8 @@ export async function rejectRequest(
   error: Issue,
   raw: RawRequest,
 ): Promise<ItemResult> {
-  const eventId = await insertEvent(ctx.pool, { apiKeyId: ctx.apiKey.id, requestId: ctx.requestId, batchIndex: null, ...raw });
+  const eventId = randomUUID();
+  await insertEvent(ctx.pool, { id: eventId, apiKeyId: ctx.apiKey.id, requestId: ctx.requestId, batchIndex: null, ...raw });
   await finalizeEvent(ctx.pool, eventId, { status: 'rejected', httpStatus, errors: [error], warnings: [] });
   ctx.log.info({ event_id: eventId, status: 'rejected', error_codes: [error.code] }, 'request rejected');
   return { httpStatus, body: body(ctx, eventId, 'rejected', { errors: [error] }) };
