@@ -79,19 +79,17 @@ function inRange(value: number | null, min: number, max: number, path: string, c
   return value;
 }
 
+/** Accuracy in whole meters: Meters, else Kilometers, else Miles. An out-of-range unit falls through to the next. */
 function accuracyMeters(accuracy: unknown, c: Collector): number | null {
-  const meters = num(accuracy, 'Meters');
-  const km = num(accuracy, 'Kilometers');
-  const miles = num(accuracy, 'Miles');
-  let value: number | null = null;
-  let path = 'Location.Accuracy.Meters';
-  if (meters !== null) value = meters;
-  else if (km !== null) { value = km * 1000; path = 'Location.Accuracy.Kilometers'; }
-  else if (miles !== null) { value = miles * 1609.344; path = 'Location.Accuracy.Miles'; }
-  if (value === null) return null;
-  const rounded = Math.round(value);
-  if (rounded < 0 || rounded > INT32_MAX) return c.outOfRange(path, value, `[0, ${INT32_MAX}] m`);
-  return rounded;
+  const units: [key: string, metersPerUnit: number][] = [['Meters', 1], ['Kilometers', 1000], ['Miles', 1609.344]];
+  for (const [key, metersPerUnit] of units) {
+    const value = num(accuracy, key);
+    if (value === null) continue;
+    const meters = Math.round(value * metersPerUnit);
+    if (meters >= 0 && meters <= INT32_MAX) return meters;
+    c.outOfRange(`Location.Accuracy.${key}`, value * metersPerUnit, `[0, ${INT32_MAX}] m`);
+  }
+  return null;
 }
 
 function cleanLocation(p: JsonObject, c: Collector): CleanLocation | null {

@@ -54,6 +54,9 @@ change it. No item changes the response fields that the spec defines.
 - **(beyond spec) `NOT_A_NUMBER` warning code.** The spec says "missing + warning" for a
   non-numeric string but gives no code. This is the code we use. A numeric string that
   overflows to Infinity (`"1e400"`) is also `NOT_A_NUMBER`, not `NUMERIC_STRING_COERCED`.
+- **Accuracy falls through units.** When `Accuracy.Meters` is out of range (for example -5), it
+  gets `OUT_OF_RANGE` and the next unit (`Kilometers`, then `Miles`) is used. Before, a bad
+  `Meters` stopped the fallback and the accuracy was null.
 - **`partial` means one of the two records was not stored.** Today that happens only for an
   invalid location. Soft-rule warnings alone (sentinel, out of range) keep `processed`.
 - **(beyond spec) Fahrenheit gets the same sentinel and range checks**, through its Celsius

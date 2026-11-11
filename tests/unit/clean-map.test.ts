@@ -129,6 +129,14 @@ describe('accuracy', () => {
     expect(acc({})).toBeNull();
   });
 
+  it('falls through to the next unit when one is out of range', () => {
+    const r = run({ Location: { Latitude: 1, Longitude: 1, Accuracy: { Meters: -5, Kilometers: 0.02 } } });
+    expect(r.reading.location?.accuracyM).toBe(20);
+    expect(r.warnings.map((w) => [w.code, w.path])).toEqual([['OUT_OF_RANGE', 'Location.Accuracy.Meters']]);
+    expect(acc({ Meters: -5, Kilometers: -1, Miles: 0.01 })).toBe(16);
+    expect(acc({ Meters: -5, Kilometers: -1 })).toBeNull();
+  });
+
   it('categorizes accuracy', () => {
     expect(accuracyCategory(100)).toBe('High');
     expect(accuracyCategory(101)).toBe('Medium');
