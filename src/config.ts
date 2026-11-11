@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs';
 
 export interface Config {
   databaseUrl: string;
+  /** Optional direct (unpooled) URL. When set, migrations use it instead of databaseUrl. */
+  databaseUrlDirect: string | null;
   port: number;
   logLevel: string;
   seedApiKey: string | null;
@@ -19,7 +21,7 @@ export function loadDotEnv(path = '.env'): void {
   if (existsSync(path)) process.loadEnvFile(path);
 }
 
-function intFrom(value: string | undefined, fallback: number, name: string): number {
+export function intFrom(value: string | undefined, fallback: number, name: string): number {
   if (value === undefined || value.trim() === '') return fallback;
   const n = Number(value);
   if (!Number.isInteger(n) || n <= 0) throw new Error(`${name} must be a positive integer, got "${value}"`);
@@ -31,6 +33,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   if (!databaseUrl) throw new Error('DATABASE_URL is required (see .env.example)');
   return {
     databaseUrl,
+    databaseUrlDirect: env.DATABASE_URL_DIRECT?.trim() || null,
     port: intFrom(env.PORT, 3000, 'PORT'),
     logLevel: env.LOG_LEVEL?.trim() || 'info',
     seedApiKey: env.SEED_API_KEY?.trim() || null,

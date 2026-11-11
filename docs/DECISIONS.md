@@ -13,8 +13,24 @@ change it. No item changes the response fields that the spec defines.
   are pure functions with an injected clock, so every rule has a unit test with no database.
 - **Hono + `@hono/node-server`, `pg`, pino, ajv, vitest.** This is the spec stack. It has few
   dependencies and no ORM, so the SQL is clear and reviewable.
-- **Migrations run at boot and through `npm run migrate`.** A Postgres advisory lock stops two
-  instances from applying the same migration during a rolling deploy.
+- **Migrations run at boot and through `npm run migrate`.** Each file runs in its own
+  transaction that first takes `pg_advisory_xact_lock`, so two instances in a rolling deploy
+  apply each file once. The runner checks `schema_migrations` again after it gets the lock.
+  A transaction lock (not a session lock) is freed by COMMIT or ROLLBACK, so a crash cannot leak
+  it, and it works through a transaction-mode pooler.
+- **Migration timeouts:** `SET LOCAL statement_timeout = 0` (DDL and the wait for another
+  instance may be slow), then `SET LOCAL lock_timeout = '5s'` once the advisory lock is held, so
+  a busy table fails the migration instead of making live queries queue behind it.
+- **Known limits of the runner:** no checksum (an edited applied file is not detected, so 001 is
+  never edited), and every file runs inside `BEGIN`, so `CREATE INDEX CONCURRENTLY` cannot be
+  used. At this size a plain `CREATE INDEX` is fine.
+- **(beyond spec) `DATABASE_URL_DIRECT` (optional).** When `DATABASE_URL` goes through a pooler,
+  migrations (boot, `migrate`, `create-key`) use this direct URL instead.
+- **Pool session settings are sent with `SET` after connect, not as startup parameters:**
+  `statement_timeout` 10 s and `idle_in_transaction_session_timeout` 15 s. The Neon pooler rejects
+  a `statement_timeout` startup parameter, so the API could not boot on the pooled URL. Even
+  now, use the direct URL for the app: PgBouncer in transaction mode does not keep session
+  settings, so the timeouts would not hold on every transaction.
 
 ## Ingest pipeline
 

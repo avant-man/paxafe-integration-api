@@ -23,7 +23,7 @@ const logger = createLogger('silent');
 
 function config(over: Partial<Config> = {}): Config {
   return {
-    databaseUrl: url ?? '', port: 0, logLevel: 'silent', seedApiKey: SEED,
+    databaseUrl: url ?? '', databaseUrlDirect: null, port: 0, logLevel: 'silent', seedApiKey: SEED,
     rateLimitPerMin: 10_000, bodyLimitBytes: 1024 * 1024, maxBatchSize: 100, maxJsonDepth: 64, rateLimitPerIpPerMin: 10_000, ...over,
   };
 }

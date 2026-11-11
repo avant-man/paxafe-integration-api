@@ -18,7 +18,8 @@ if (accountId !== null && !Number.isSafeInteger(accountId)) {
 
 loadDotEnv();
 const config = loadConfig();
-const pool = createPool(config.databaseUrl, { max: 1 });
+// Migrations use the direct (unpooled) URL when one is given.
+const pool = createPool(config.databaseUrlDirect ?? config.databaseUrl, { max: 1 });
 try {
   await runMigrations(pool, createLogger('warn'));
   const { id, key } = await createApiKey(pool, name, accountId);
