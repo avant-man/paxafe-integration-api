@@ -44,17 +44,17 @@ You need Node.js 22 or later and Docker.
 ```bash
 npm install
 cp .env.example .env
-docker compose up -d db                  # postgres:16 on host port DB_PORT (default 5433)
+docker compose up -d db                  # postgres:16 on host port DB_PORT (default 5435)
 npm run migrate                          # applies migrations/*.sql (boot also runs them)
 npm run create-key -- local-dev          # prints a new api_key once, keep it
 SEED_API_KEY=test-key-local npm run dev  # http://localhost:3000, key "test-key-local" also works
 ```
 
-**Host port 5433 is taken?** Docker Compose reads `DB_PORT` from `.env`, and the app reads
-`DATABASE_URL` from `.env`. Both name port 5433, so change both before `docker compose up`:
+**Host port 5435 is taken?** Docker Compose reads `DB_PORT` from `.env`, and the app reads
+`DATABASE_URL` from `.env`. Both name port 5435, so change both before `docker compose up`:
 
 ```bash
-sed -i.bak 's/5433/5435/g' .env          # DB_PORT=5435 and DATABASE_URL=...@localhost:5435/paxafe
+sed -i.bak 's/5435/5436/g' .env          # DB_PORT=5436 and DATABASE_URL=...@localhost:5436/paxafe
 ```
 
 **Port 3000 is taken?** Start the API with another port, for example `PORT=3300 npm run dev`.
@@ -101,7 +101,7 @@ curl -s -H 'X-API-Key: test-key-local' 'http://localhost:3000/api/devices/863257
 | `SEED_API_KEY` | empty | When set, boot stores it as the unscoped key named `seed` |
 | `RATE_LIMIT_PER_MIN` | `600` | Requests per key per minute, per instance |
 | `RATE_LIMIT_PER_IP_PER_MIN` | `1200` | Requests per client IP per minute, checked before auth |
-| `DB_PORT` | `5433` | Host port of the Compose database. Docker Compose reads it, the app does not |
+| `DB_PORT` | `5435` | Host port of the Compose database. Docker Compose reads it, the app does not |
 | `RETENTION_EVENT_DAYS` / `RETENTION_RAW_DAYS` / `RETENTION_BATCH_SIZE` | `30` / `90` / `1000` | Used only by `npm run retention` |
 
 ## 2. Architecture
@@ -435,7 +435,7 @@ every event that a reading points at. Render free has no cron, so it runs by han
 
 ```bash
 npm test                                                                   # unit tests, 152 pass, 64 integration tests skip
-TEST_DATABASE_URL=postgres://paxafe:paxafe@localhost:5433/paxafe npm test  # all 216 tests
+TEST_DATABASE_URL=postgres://paxafe:paxafe@localhost:5435/paxafe npm test  # all 216 tests
 npm run typecheck
 npm run lint
 ```

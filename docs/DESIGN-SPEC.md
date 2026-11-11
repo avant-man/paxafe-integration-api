@@ -8,7 +8,7 @@ and `schemas/px-location-schema.json` (output), `schemas/sample-tive-payloads.js
 
 - TypeScript, Node 22+ (ESM), Hono + `@hono/node-server`, `vitest` for tests.
 - Integration API database: PostgreSQL (`pg`). Local: `docker compose up -d db`
-  (postgres:16, port 5433 on the host to avoid clashes). Deploy: Render web service +
+  (postgres:16, port 5435 on the host to avoid clashes). Deploy: Render web service +
   Neon or Render Postgres. Config only through env vars (`DATABASE_URL`, `PORT`,
   `SEED_API_KEY`, `LOG_LEVEL`). Provide `.env.example`, `Dockerfile`, `render.yaml`.
 - Structured JSON logs (pino) with a request id (`X-Request-Id`, generated when absent).
