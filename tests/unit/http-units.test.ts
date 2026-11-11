@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { extractApiKey } from '../../src/http/auth.js';
 import { decodeUtf8, nestedDeeperThan } from '../../src/http/body.js';
-import { TokenBucketLimiter } from '../../src/http/rate-limit.js';
+import { clientIp, TokenBucketLimiter } from '../../src/http/rate-limit.js';
 import { hashPayload, stableStringify } from '../../src/transform/hash.js';
 
 const headers = (h: Record<string, string>) => ({ get: (n: string) => h[n.toLowerCase()] ?? null });
@@ -51,5 +51,23 @@ describe('request body helpers', () => {
     let deep: unknown = 1;
     for (let i = 0; i < 100_000; i += 1) deep = [deep];
     expect(nestedDeeperThan(deep, 64)).toBe(true);
+  });
+});
+
+describe('per-IP limit helpers', () => {
+  it('clientIp takes the last X-Forwarded-For entry (added by the proxy), else the socket address', () => {
+    expect(clientIp('6.6.6.6, 203.0.113.9', '10.0.0.1')).toBe('203.0.113.9');
+    expect(clientIp(' 203.0.113.9 ', undefined)).toBe('203.0.113.9');
+    expect(clientIp(undefined, '10.0.0.1')).toBe('10.0.0.1');
+    expect(clientIp('', undefined)).toBe('unknown');
+  });
+
+  it('the limiter drops refilled buckets so memory stays bounded', () => {
+    let t = 0;
+    const limiter = new TokenBucketLimiter(60, () => t, 100);
+    for (let i = 0; i < 100; i += 1) limiter.take(`ip-${i}`);
+    t += 60_000; // every bucket is full again
+    limiter.take('one-more');
+    expect(limiter.size).toBe(1);
   });
 });

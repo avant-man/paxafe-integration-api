@@ -126,6 +126,13 @@ change it. No item changes the response fields that the spec defines.
 - **The rate limit counts HTTP requests, not batch items, on all `/api/*` routes.** A batch of
   100 costs 1 token. The limit is in memory and per instance. A shared limit needs Redis or a
   Postgres counter.
+- **(beyond spec) A per-client-IP limit runs before auth** (`RATE_LIMIT_PER_IP_PER_MIN`, default
+  1200). Before this, requests with a bad key were never limited, and each one cost a database
+  lookup. It is higher than the per-key limit so that Tive, which sends for many keys from few
+  IPs, is limited by key first. The IP is the last `X-Forwarded-For` entry, which Render's proxy
+  adds; entries to its left can be forged. Run without a proxy, a client could set that header,
+  so this is a flood guard, not a security boundary. Refilled buckets are dropped above 10,000
+  IPs, so memory stays bounded. 401 and 429 are still not stored as events.
 - **Body limit is 1 MB, enforced while the body streams.** A missing or false `Content-Length`
   does not get around it.
 

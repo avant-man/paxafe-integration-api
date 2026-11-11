@@ -6,6 +6,8 @@ export interface Config {
   logLevel: string;
   seedApiKey: string | null;
   rateLimitPerMin: number;
+  /** Requests per minute per client IP, checked before auth. Higher than the key limit on purpose. */
+  rateLimitPerIpPerMin: number;
   bodyLimitBytes: number;
   maxBatchSize: number;
   /** Deepest nesting of objects and arrays in a body. A Tive payload needs 4 (5 in a batch). */
@@ -33,6 +35,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     logLevel: env.LOG_LEVEL?.trim() || 'info',
     seedApiKey: env.SEED_API_KEY?.trim() || null,
     rateLimitPerMin: intFrom(env.RATE_LIMIT_PER_MIN, 600, 'RATE_LIMIT_PER_MIN'),
+    rateLimitPerIpPerMin: intFrom(env.RATE_LIMIT_PER_IP_PER_MIN, 1200, 'RATE_LIMIT_PER_IP_PER_MIN'),
     bodyLimitBytes: 1024 * 1024,
     maxBatchSize: 100,
     maxJsonDepth: 64,

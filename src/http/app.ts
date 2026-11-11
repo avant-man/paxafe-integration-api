@@ -4,7 +4,7 @@ import type { Pool } from '../db/pool.js';
 import type { Logger } from '../logger.js';
 import { apiKeyAuth } from './auth.js';
 import type { AppEnv } from './env.js';
-import { rateLimit, TokenBucketLimiter } from './rate-limit.js';
+import { clientIp, rateLimit, TokenBucketLimiter } from './rate-limit.js';
 import { requestContext } from './request-context.js';
 import { apiRoutes } from './routes.js';
 
@@ -17,7 +17,8 @@ export interface AppDeps {
 
 export function createApp({ pool, logger, config, now = Date.now }: AppDeps): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
-  const limiter = new TokenBucketLimiter(config.rateLimitPerMin, now);
+  const keyLimiter = new TokenBucketLimiter(config.rateLimitPerMin, now);
+  const ipLimiter = new TokenBucketLimiter(config.rateLimitPerIpPerMin, now);
 
   app.use('*', requestContext(logger));
 
@@ -39,7 +40,13 @@ export function createApp({ pool, logger, config, now = Date.now }: AppDeps): Ho
     }
   });
 
-  app.use('/api/*', apiKeyAuth(pool), rateLimit(limiter));
+  // The per-IP limit runs before auth, so requests with bad keys cannot flood the key lookup.
+  app.use(
+    '/api/*',
+    rateLimit(ipLimiter, 'ip', (c) => clientIp(c.req.header('x-forwarded-for'), c.env?.incoming?.socket.remoteAddress)),
+    apiKeyAuth(pool),
+    rateLimit(keyLimiter, 'key', (c) => c.get('apiKey').id),
+  );
   app.route('/api', apiRoutes(pool, config, now));
 
   app.notFound((c) => c.json({ error: 'not_found' }, 404));

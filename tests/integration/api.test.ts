@@ -24,7 +24,7 @@ const logger = createLogger('silent');
 function config(over: Partial<Config> = {}): Config {
   return {
     databaseUrl: url ?? '', port: 0, logLevel: 'silent', seedApiKey: SEED,
-    rateLimitPerMin: 10_000, bodyLimitBytes: 1024 * 1024, maxBatchSize: 100, maxJsonDepth: 64, ...over,
+    rateLimitPerMin: 10_000, bodyLimitBytes: 1024 * 1024, maxBatchSize: 100, maxJsonDepth: 64, rateLimitPerIpPerMin: 10_000, ...over,
   };
 }
 
@@ -523,6 +523,17 @@ describe.skipIf(!url)('integration: HTTP + Postgres', () => {
       const res = await call();
       expect(res.status).toBe(429);
       expect(Number(res.headers.get('retry-after'))).toBeGreaterThanOrEqual(1);
+    });
+
+    it('limits requests per client IP before auth, so bad keys cannot flood the key lookup', async () => {
+      const limited = createApp({ pool, logger, config: config({ rateLimitPerIpPerMin: 2 }) });
+      const call = (ip: string, i: number) => limited.request('/api/events', { headers: { 'x-api-key': `wrong-${i}`, 'x-forwarded-for': ip } });
+      expect((await call('198.51.100.7', 1)).status).toBe(401);
+      expect((await call('198.51.100.7', 2)).status).toBe(401);
+      const res = await call('198.51.100.7', 3);
+      expect(res.status).toBe(429);
+      expect(await res.json() as Json).toMatchObject({ error: 'rate_limited' });
+      expect((await call('198.51.100.8', 4)).status).toBe(401);
     });
   });
 });
