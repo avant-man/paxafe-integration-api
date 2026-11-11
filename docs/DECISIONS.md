@@ -151,6 +151,12 @@ change it. No item changes the response fields that the spec defines.
   IPs, so memory stays bounded. 401 and 429 are still not stored as events.
 - **Body limit is 1 MB, enforced while the body streams.** A missing or false `Content-Length`
   does not get around it.
+- **A 413 keeps the keep-alive connection usable.** Before it answers, the API reads and drops
+  the rest of the body, up to 8 MB. Before this, the 413 went out while the client was still
+  sending, and the client's next request on that connection failed with "other side closed"
+  (about 1 request in 10 with `fetch`). A larger body, or a chunked body that the limit
+  middleware is still reading, gets `Connection: close` instead. 401 and 415 did not show the
+  problem in the same test (100 rounds each), because the Node adapter drains those bodies.
 
 ## Database
 

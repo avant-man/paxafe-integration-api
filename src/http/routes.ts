@@ -7,7 +7,7 @@ import { getDeviceReadings } from '../db/readings.js';
 import { ingestItem, rejectRequest, summarize, type IngestContext, type RawRequest } from '../ingest.js';
 import { IMEI_PATTERN } from '../transform/validate.js';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
-import { decodeUtf8, nestedDeeperThan } from './body.js';
+import { decodeUtf8, discardBody, MAX_DISCARD_BYTES, nestedDeeperThan } from './body.js';
 import type { AppEnv } from './env.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -32,7 +32,13 @@ export function apiRoutes(pool: Pool, config: Config, now: () => number): Hono<A
     },
     bodyLimit({
       maxSize: config.bodyLimitBytes,
-      onError: (c) => c.json({ error: 'payload_too_large', message: `Body must be at most ${config.bodyLimitBytes} bytes` }, 413),
+      onError: async (c) => {
+        // Read and drop the rest of the body first. A 413 sent while the client is still
+        // sending leaves the socket in a bad state, and the client's next request on that
+        // keep-alive connection failed with "other side closed". Above the cap, close instead.
+        if (!(await discardBody(c.req.raw.body, MAX_DISCARD_BYTES))) c.header('Connection', 'close');
+        return c.json({ error: 'payload_too_large', message: `Body must be at most ${config.bodyLimitBytes} bytes` }, 413);
+      },
     }),
     async (c) => {
       const ctx: IngestContext = {

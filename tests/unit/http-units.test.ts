@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { extractApiKey } from '../../src/http/auth.js';
-import { decodeUtf8, nestedDeeperThan } from '../../src/http/body.js';
+import { decodeUtf8, discardBody, nestedDeeperThan } from '../../src/http/body.js';
 import { clientIp, TokenBucketLimiter } from '../../src/http/rate-limit.js';
 import { hashPayload, stableStringify } from '../../src/transform/hash.js';
 
@@ -69,5 +69,26 @@ describe('per-IP limit helpers', () => {
     t += 60_000; // every bucket is full again
     limiter.take('one-more');
     expect(limiter.size).toBe(1);
+  });
+});
+
+describe('discardBody', () => {
+  const stream = (chunks: number[]) => new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const n of chunks) controller.enqueue(new Uint8Array(n));
+      controller.close();
+    },
+  });
+
+  it('reads a body to its end under the cap, and stops above it', async () => {
+    expect(await discardBody(stream([10, 10]), 100)).toBe(true);
+    expect(await discardBody(stream([60, 60]), 100)).toBe(false);
+    expect(await discardBody(null, 100)).toBe(true);
+  });
+
+  it('returns false when another reader holds the stream', async () => {
+    const s = stream([1]);
+    s.getReader();
+    expect(await discardBody(s, 100)).toBe(false);
   });
 });
